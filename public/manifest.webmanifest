@@ -1,0 +1,17 @@
+{
+  "name": "OptiFirst POS Daily Reports",
+  "short_name": "OptiFirst POS",
+  "description": "Mobile daily sales and stock reporting with Google Sheets sync.",
+  "start_url": "/login",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "48x48",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
