@@ -1,341 +1,242 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Users, Plus, Edit, Shield, User, Smartphone, Lock, AlertCircle, RefreshCw } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Edit, Plus, RefreshCw, Smartphone, Users } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
-import type { Employee, UserSession } from "../../types";
 import Modal from "../../components/common/Modal";
-import { getSessionUser } from "../../utils/session";
+import type { Shop, User } from "../../types";
+
+const blankForm = {
+  name: "",
+  phone: "",
+  pin: "",
+  role: "Employee",
+  shopId: "",
+  status: "Active"
+};
 
 export const ManageEmployees: React.FC = () => {
-  const navigate = useNavigate();
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [submitLoading, setSubmitLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<User | null>(null);
+  const [form, setForm] = useState(blankForm);
 
-  // Modal control
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const activeShops = useMemo(() => shops.filter((shop) => shop.Status === "Active"), [shops]);
 
-  // Form Fields
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [pin, setPin] = useState("");
-  const [role, setRole] = useState<"Admin" | "Employee">("Employee");
-  const [status, setStatus] = useState<"Active" | "Inactive">("Active");
-
-  const [user] = useState<UserSession | null>(() => getSessionUser());
-
-  const loadEmployees = async () => {
+  const loadData = async () => {
     setLoading(true);
     setError("");
     try {
-      const response = await appsScriptClient.getEmployees();
-      if (response.success && response.employees) {
-        setEmployees(response.employees);
-      } else {
-        setError("Failed to fetch employees.");
-      }
-    } catch (e) {
-      console.error(e);
-      setError("Network error loading employee registry.");
+      const [userResponse, shopResponse] = await Promise.all([appsScriptClient.getUsers(), appsScriptClient.getShops()]);
+      if (userResponse.success && userResponse.users) setUsers(userResponse.users);
+      if (shopResponse.success && shopResponse.shops) setShops(shopResponse.shops);
+      if (!userResponse.success) setError(userResponse.error || "Failed to load users.");
+    } catch (loadError) {
+      console.error(loadError);
+      setError("Network error loading employees.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!user || user.role !== "Admin") {
-      navigate("/login");
-      return;
-    }
-    loadEmployees();
-  }, [user, navigate]);
+    loadData();
+  }, []);
 
-  const openAddModal = () => {
-    setEditingEmployee(null);
-    setName("");
-    setPhone("");
-    setPin("");
-    setRole("Employee");
-    setStatus("Active");
-    setIsModalOpen(true);
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ ...blankForm, shopId: activeShops[0]?.ShopID || "" });
+    setOpen(true);
   };
 
-  const openEditModal = (emp: Employee) => {
-    setEditingEmployee(emp);
-    setName(emp.Name);
-    setPhone(emp.Phone);
-    setPin(""); // Leave blank unless they want to change PIN
-    setRole(emp.Role);
-    setStatus(emp.Status);
-    setIsModalOpen(true);
+  const openEdit = (user: User) => {
+    setEditing(user);
+    setForm({
+      name: user.Name,
+      phone: user.Phone,
+      pin: "",
+      role: user.Role,
+      shopId: user.ShopID || "",
+      status: user.Status
+    });
+    setOpen(true);
   };
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const saveUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
     setError("");
-    setSubmitLoading(true);
-
-    if (!name.trim() || !phone.trim()) {
-      setError("Name and Phone are required.");
-      setSubmitLoading(false);
-      return;
-    }
-
     try {
-      if (editingEmployee) {
-        // UPDATE
-        const updatePayload: {
-          employeeId: string;
-          name: string;
-          phone: string;
-          role: "Admin" | "Employee";
-          status: "Active" | "Inactive";
-          pin?: string;
-        } = {
-          employeeId: editingEmployee.EmployeeID,
-          name: name.trim(),
-          phone: phone.trim(),
-          role,
-          status
-        };
-        if (pin.trim()) {
-          updatePayload.pin = pin.trim();
-        }
-        const response = await appsScriptClient.updateEmployee(updatePayload);
-        if (response.success) {
-          setIsModalOpen(false);
-          loadEmployees();
-        } else {
-          setError(response.error || "Failed to update employee details.");
-        }
+      const response = editing
+        ? await appsScriptClient.updateUser({
+            userId: editing.UserID,
+            name: form.name,
+            phone: form.phone,
+            pin: form.pin || undefined,
+            role: form.role,
+            shopId: form.role === "Admin" ? "" : form.shopId,
+            status: form.status
+          })
+        : await appsScriptClient.createUser({
+            name: form.name,
+            phone: form.phone,
+            pin: form.pin,
+            role: form.role,
+            shopId: form.role === "Admin" ? "" : form.shopId,
+            status: form.status
+          });
+      if (response.success) {
+        setOpen(false);
+        await loadData();
       } else {
-        // CREATE
-        if (!pin.trim()) {
-          setError("A secure PIN is required to create a new account.");
-          setSubmitLoading(false);
-          return;
-        }
-        const createPayload = {
-          name: name.trim(),
-          phone: phone.trim(),
-          pin: pin.trim(),
-          role,
-          status
-        };
-        const response = await appsScriptClient.createEmployee(createPayload);
-        if (response.success) {
-          setIsModalOpen(false);
-          loadEmployees();
-        } else {
-          setError(response.error || "Failed to create new employee account.");
-        }
+        setError(response.error || "Employee save failed.");
       }
-    } catch (err) {
-      console.error(err);
-      setError("Network connection error. Try again.");
+    } catch (saveError) {
+      console.error(saveError);
+      setError("Network error saving employee.");
     } finally {
-      setSubmitLoading(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 px-3 py-4 sm:px-6 sm:py-6">
+      <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold flex items-center space-x-2">
-            <Users className="h-5 w-5 text-primary" />
-            <span>Manage Employees</span>
+          <h1 className="flex items-center gap-2 text-2xl font-black tracking-tight">
+            <Users className="h-6 w-6 text-primary" />
+            Employees
           </h1>
-          <p className="text-xs text-muted-foreground">Register staff members and configure access permissions.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Create logins and assign each employee to a shop.</p>
         </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={loadEmployees}
-            className="p-2 border border-border rounded-lg hover:bg-secondary text-muted-foreground"
-          >
+        <div className="flex gap-2">
+          <button type="button" onClick={loadData} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
-          
-          <button
-            onClick={openAddModal}
-            className="flex items-center space-x-1.5 py-2 px-4 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/95 text-xs transition-all shadow-md shadow-primary/20"
-          >
+          <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-primary-foreground">
             <Plus className="h-4 w-4" />
-            <span>Add Employee</span>
+            Add Employee
           </button>
         </div>
       </div>
 
-      {error && !isModalOpen && (
-        <div className="flex items-center space-x-2 rounded-xl bg-destructive/10 p-3.5 text-sm text-destructive border border-destructive/20">
-          <AlertCircle className="h-5 w-5 flex-shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      {error && <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
-      {/* Employees Grid List */}
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 border-4 border-t-transparent border-primary rounded-full animate-spin"></div>
-        </div>
-      ) : employees.length === 0 ? (
-        <div className="text-center py-16 bg-card border border-border rounded-2xl text-muted-foreground">
-          <Users className="h-12 w-12 mx-auto opacity-20 mb-3" />
-          <p className="font-medium text-sm">No employees registered yet.</p>
-        </div>
+        <div className="rounded-lg border border-border bg-card p-10 text-center text-sm font-semibold text-muted-foreground">Loading employees...</div>
+      ) : users.length === 0 ? (
+        <div className="rounded-lg border border-border bg-card p-10 text-center text-sm text-muted-foreground">No users found.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {employees.map((emp) => (
-            <div key={emp.EmployeeID} className="bg-card border border-border rounded-2xl p-5 shadow-sm space-y-4 hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <span className="text-[10px] text-muted-foreground font-semibold">ID: {emp.EmployeeID}</span>
-                  <h3 className="text-base font-bold text-foreground">{emp.Name}</h3>
-                  <p className="text-xs text-muted-foreground flex items-center space-x-1">
-                    <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span>{emp.Phone}</span>
-                  </p>
-                </div>
-                <button
-                  onClick={() => openEditModal(emp)}
-                  className="p-1.5 border border-border rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
-                >
-                  <Edit className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between text-xs pt-2 border-t border-border/50">
-                <div className="flex items-center space-x-1.5">
-                  <Shield className="h-4 w-4 text-primary" />
-                  <span className="font-semibold text-foreground/80">{emp.Role}</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] border ${
-                  emp.Status === "Active" 
-                    ? "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/20 dark:text-green-400" 
-                    : "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/20 dark:text-red-400"
-                }`}>
-                  {emp.Status}
-                </span>
-              </div>
-            </div>
-          ))}
+        <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead className="border-b border-border bg-secondary/50 text-xs text-muted-foreground">
+                <tr>
+                  <th className="p-3">Name</th>
+                  <th className="p-3">Phone</th>
+                  <th className="p-3">Role</th>
+                  <th className="p-3">Shop</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {users.map((user) => (
+                  <tr key={user.UserID} className="hover:bg-secondary/30">
+                    <td className="p-3">
+                      <p className="font-black">{user.Name}</p>
+                      <p className="text-xs text-muted-foreground">{user.UserID}</p>
+                    </td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center gap-1">
+                        <Smartphone className="h-3.5 w-3.5 text-muted-foreground" />
+                        {user.Phone}
+                      </span>
+                    </td>
+                    <td className="p-3 font-semibold">{user.Role}</td>
+                    <td className="p-3">{user.ShopName || (user.Role === "Admin" ? "All Shops" : "-")}</td>
+                    <td className="p-3">
+                      <span className={`rounded-full border px-2 py-1 text-[10px] font-black ${user.Status === "Active" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                        {user.Status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <button type="button" onClick={() => openEdit(user)} className="rounded-md border border-border p-2 text-muted-foreground hover:bg-secondary" aria-label={`Edit ${user.Name}`}>
+                        <Edit className="h-4 w-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Add/Edit Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title={editingEmployee ? "Edit Employee Profile" : "Register New Employee"}
-      >
-        <form onSubmit={handleFormSubmit} className="space-y-4 pt-2">
-          {error && (
-            <div className="flex items-center space-x-2 rounded-xl bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20">
-              <AlertCircle className="h-4.5 w-4.5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-semibold text-foreground/80 mb-1">Full Name</label>
-            <div className="relative">
-              <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="John Doe"
-                className="w-full pl-9 pr-3 py-2 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-foreground/80 mb-1">Phone Number</label>
-            <div className="relative">
-              <Smartphone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <input
-                type="tel"
-                required
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1234567890"
-                className="w-full pl-9 pr-3 py-2 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-foreground/80 mb-1">
-              {editingEmployee ? "New PIN (Leave blank to keep current)" : "Secure PIN"}
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <input
-                type="password"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="4-digit secure code"
-                maxLength={6}
-                className="w-full pl-9 pr-3 py-2 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+      <Modal isOpen={open} onClose={() => setOpen(false)} title={editing ? "Edit Employee" : "Add Employee"}>
+        <form onSubmit={saveUser} className="space-y-4">
+          <Field label="Name" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} required />
+          <Field label="Phone" value={form.phone} onChange={(value) => setForm((current) => ({ ...current, phone: value }))} required />
+          <Field
+            label={editing ? "New PIN (optional)" : "PIN"}
+            value={form.pin}
+            onChange={(value) => setForm((current) => ({ ...current, pin: value }))}
+            required={!editing}
+            type="password"
+          />
+          <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="block text-xs font-semibold text-foreground/80 mb-1">System Role</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as "Admin" | "Employee")}
-                className="w-full px-3 py-2 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
+              <label className="mb-1 block text-xs font-bold text-muted-foreground">Role</label>
+              <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold">
                 <option value="Employee">Employee</option>
                 <option value="Admin">Admin</option>
               </select>
             </div>
-
             <div>
-              <label className="block text-xs font-semibold text-foreground/80 mb-1">Account Status</label>
+              <label className="mb-1 block text-xs font-bold text-muted-foreground">Shop</label>
               <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as "Active" | "Inactive")}
-                className="w-full px-3 py-2 border border-input rounded-xl bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                value={form.shopId}
+                disabled={form.role === "Admin"}
+                onChange={(event) => setForm((current) => ({ ...current, shopId: event.target.value }))}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold disabled:opacity-50"
               >
+                <option value="">No shop</option>
+                {activeShops.map((shop) => (
+                  <option key={shop.ShopID} value={shop.ShopID}>{shop.ShopName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-muted-foreground">Status</label>
+              <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold">
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
               </select>
             </div>
           </div>
-
-          <div className="flex justify-end space-x-2 pt-4 border-t border-border">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-border rounded-xl text-xs font-semibold hover:bg-secondary"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitLoading}
-              className="flex items-center space-x-1 px-4 py-2 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/95 text-xs disabled:opacity-50"
-            >
-              {submitLoading ? (
-                <div className="h-3.5 w-3.5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
-              ) : (
-                <span>Save</span>
-              )}
-            </button>
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-border px-3 py-2 text-sm font-bold">Cancel</button>
+            <button type="submit" disabled={saving} className="rounded-lg bg-primary px-3 py-2 text-sm font-bold text-primary-foreground disabled:opacity-60">Save</button>
           </div>
         </form>
       </Modal>
     </div>
   );
 };
+
+const Field: React.FC<{ label: string; value: string; type?: string; required?: boolean; onChange: (value: string) => void }> = ({ label, value, type = "text", required, onChange }) => (
+  <div>
+    <label className="mb-1 block text-xs font-bold text-muted-foreground">{label}</label>
+    <input
+      type={type}
+      required={required}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+    />
+  </div>
+);
+
 export default ManageEmployees;

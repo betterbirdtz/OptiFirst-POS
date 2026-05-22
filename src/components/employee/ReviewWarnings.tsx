@@ -16,12 +16,12 @@ export const ReviewWarnings: React.FC<ReviewWarningsProps> = ({ warnings }) => {
   }
 
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-      <div className="mb-2 flex items-center gap-2 text-sm font-black">
+    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-black text-amber-600">
         <AlertTriangle className="h-5 w-5 flex-shrink-0" />
         <span>Review warnings</span>
       </div>
-      <ul className="space-y-1 text-xs font-semibold">
+      <ul className="space-y-1 text-xs font-semibold text-slate-900">
         {warnings.map((warning) => (
           <li key={warning}>- {warning}</li>
         ))}

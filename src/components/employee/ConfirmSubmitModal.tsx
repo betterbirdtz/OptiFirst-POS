@@ -8,6 +8,7 @@ interface ConfirmSubmitModalProps {
   loading: boolean;
   totalSales: number;
   warningsCount: number;
+  description?: string;
   onClose: () => void;
   onConfirm: () => void;
 }
@@ -17,6 +18,7 @@ export const ConfirmSubmitModal: React.FC<ConfirmSubmitModalProps> = ({
   loading,
   totalSales,
   warningsCount,
+  description,
   onClose,
   onConfirm
 }) => {
@@ -26,7 +28,7 @@ export const ConfirmSubmitModal: React.FC<ConfirmSubmitModalProps> = ({
         <div className="rounded-xl border border-border bg-secondary/40 p-4 text-sm">
           <p className="font-bold text-foreground">Submit this daily report to admin?</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            After submission, the report will appear in the admin dashboard and update opening stock for the next day.
+            {description || "After submission, the report will appear in the admin dashboard."}
           </p>
         </div>
 

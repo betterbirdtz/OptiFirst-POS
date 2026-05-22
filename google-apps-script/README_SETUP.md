@@ -1,68 +1,85 @@
-# Google Sheets & Apps Script Setup Guide
+# Google Sheets + Apps Script Setup
 
-Follow these steps to set up your Google Sheets database and host the Apps Script backend for the Daily Sales and Stock Reporting system.
+This project uses one Google Spreadsheet as the temporary database and one Apps Script Web App as the API. Do not create one file per employee and do not create monthly tabs manually.
 
-## Step 1: Create a Google Spreadsheet
-1. Go to [Google Sheets](https://sheets.google.com) and create a new blank spreadsheet.
-2. Name the sheet (e.g., `Daily Sales & Stock Report Database`).
-3. You do not need to manually create any tabs; the setup script will do this automatically.
+## 1. Create The Spreadsheet
 
-## Step 2: Open Google Apps Script Editor
-1. In the Google Spreadsheet menu bar, click on **Extensions** -> **Apps Script**.
-2. This opens the Google Apps Script project editor page.
-3. Delete any default code in the editor (which usually has an empty `myFunction`).
+1. Create a blank Google Spreadsheet.
+2. Name it `OptiFirst POS Database` or similar.
+3. Open `Extensions` -> `Apps Script`.
+4. Replace the default script with `google-apps-script/Code.gs` from this repo.
+5. Save the Apps Script project.
 
-## Step 3: Paste the Code
-1. Copy all contents from [Code.gs](file:///c:/Users/varun/Downloads/Opti first Pos Software/google-apps-script/Code.gs).
-2. Paste it into the editor's main file (rename the file to `Code.gs` if it is named something else).
-3. Save the project (click the disk icon or press `Ctrl + S`).
+## 2. Run `setupSheets()`
 
-## Step 4: Run Initial Sheet Setup
-1. In the toolbar at the top of the editor, select `setupSheets` from the function dropdown menu.
-2. Click the **Run** button (play icon).
-3. An **Authorization Required** dialog will appear. Click **Review Permissions**.
-4. Choose your Google account.
-5. You will see an "Unverified App" warning. Click **Advanced** and then click **Go to Untitled project (unsafe)**.
-6. Grant permissions to view and manage your spreadsheets and run scripts.
-7. The execution log will show "Setup completed successfully!".
-8. Go back to your Google Sheet to verify that the tabs (`Employees`, `Products`, `DailySales`, `DailyStock`, `DailySummary`, `CreditSales`, `OpeningStock`, `Logs`) have been created with correct headers and seeded sample data.
+In Apps Script, select `setupSheets` and click Run. Approve the requested permissions.
 
-## Step 5: Deploy as Web App
-1. At the top-right of the Apps Script page, click the **Deploy** button and select **New deployment**.
-2. Click the gear icon (Select type) and choose **Web app**.
-3. Fill out the configuration:
-   - **Description**: `Daily Sales and Stock Report API v1`
-   - **Execute as**: `Me (your-email@gmail.com)`
-   - **Who has access**: `Anyone` (This is critical to allow the frontend to access the API without Google login screens).
-4. Click **Deploy**.
-5. Copy the **Web App URL** provided (it looks like `https://script.google.com/macros/s/AKfycb.../exec`).
-6. Save this URL for the frontend `.env` configuration file.
+`setupSheets()` creates these tabs with normalized headers:
 
-## Step 6: Update Environment Variable
-Create a `.env` file in the root of your React frontend project and paste the URL:
+- `Users`
+- `Shops`
+- `Products`
+- `DailyReports`
+- `DailySalesEntries`
+- `DailyStockEntries`
+- `Collections`
+- `LiveWeight`
+- `Logs`
+
+It also seeds:
+
+- Shops: `Kisutu`, `Kigamboni`, `Utumbo`
+- Admin user
+- One employee per sample shop
+- Chicken and egg products
+
+## 3. Deploy The API
+
+1. Click `Deploy` -> `New deployment`.
+2. Select type: `Web app`.
+3. Set `Execute as` to `Me`.
+4. Set `Who has access` to `Anyone`.
+5. Deploy and copy the Web App URL.
+
+## 4. Configure The Frontend
+
+Create `.env` in the project root:
+
 ```env
-VITE_APPS_SCRIPT_URL=https://script.google.com/macros/s/AKfycbYOUR_DEPLOYED_ID_HERE/exec
+VITE_APPS_SCRIPT_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
 ```
 
----
+Then run:
 
-## Default Sample Credentials (Created in setupSheets)
+```bash
+npm install
+npm run dev
+```
 
-Once the setup is done, you can use these accounts to log in on the mobile/desktop app:
+## Sample Logins
 
-### Admin Credentials
-- **Phone Number**: `+1234567890`
-- **PIN**: `1234`
-- **Role**: Admin
+Admin:
 
-### Employee Credentials
-- **Phone Number**: `+1234567891`
-- **PIN**: `5678`
-- **Role**: Employee
+- Phone: `+255700000000`
+- PIN: `1234`
 
-## Notes
+Employees:
 
-- Employees never edit the Google Sheet directly. They submit through the frontend, which calls the Apps Script Web App.
-- `submitDailyReport` accepts the complete daily sales and stock payload in one request.
-- Reopened reports are corrected by sending the original `reportId`; the script replaces old detail rows and resets the summary status to `Pending Approval`.
-- The script validates active employee, active products, numeric quantities, required closing stock, and customer name for credit sales before writing rows.
+- Kisutu: `+255700000101` / `1111`
+- Kigamboni: `+255700000102` / `2222`
+- Utumbo: `+255700000103` / `3333`
+
+## API Notes
+
+- `submitDailySales` writes all sales rows in one request.
+- `submitDailyStock` writes all stock rows in one request during end-of-day closing.
+- `submitDailyCollection` writes the employee settlement for the same shop/date and updates the existing collection row.
+- Credit sales require `CustomerName`.
+- Stock mismatch is calculated as `ActualClosing - (OpeningStock + Receipt - Sales)`.
+- Collections are generated automatically from daily sales by shop and date.
+- Collection variance is calculated as `CashSales - (DepositCash + DepositLIPA)`.
+- Bank deposit difference is calculated as `DepositCash - DepositInBank`.
+- Sales vs EFD is calculated as `TotalSales - EFDZReport`.
+- Admin can approve, reject, reopen, and add notes to collection rows.
+- Employees correct collection values from the End-of-Day Closing screen after admin reopens a settlement.
+- Employees can submit only for their assigned shop.

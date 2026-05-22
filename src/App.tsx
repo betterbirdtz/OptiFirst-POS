@@ -1,33 +1,35 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Navbar from "./components/common/Navbar";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
+import { getSessionUser } from "./utils/session";
 import Login from "./pages/Login";
-
-// Employee Pages
-import EmployeeDashboard from "./pages/employee/EmployeeDashboard";
-import TodayReport from "./pages/employee/TodayReport";
-import MyReports from "./pages/employee/MyReports";
-
-// Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import Collections from "./pages/admin/Collections";
+import CreditSales from "./pages/admin/CreditSales";
+import DailySales from "./pages/admin/DailySales";
+import DailyStock from "./pages/admin/DailyStock";
+import LiveWeight from "./pages/admin/LiveWeight";
 import ManageEmployees from "./pages/admin/ManageEmployees";
 import ManageProducts from "./pages/admin/ManageProducts";
 import Reports from "./pages/admin/Reports";
-import DailySales from "./pages/admin/DailySales";
-import DailyStock from "./pages/admin/DailyStock";
-import CreditSales from "./pages/admin/CreditSales";
+import Shops from "./pages/admin/Shops";
 import StockMismatch from "./pages/admin/StockMismatch";
+import EmployeeDashboard from "./pages/employee/EmployeeDashboard";
+import MyReports from "./pages/employee/MyReports";
+import DailySalesEntry from "./pages/employee/DailySalesEntry";
+import EodClosing from "./pages/employee/EodClosing";
 
-// Layout wrapper that renders the navbar on protected pages
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const user = getSessionUser();
   const isLoginPage = location.pathname === "/login";
+  const isAdmin = user?.role === "Admin";
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="min-h-screen bg-background text-foreground">
       {!isLoginPage && <Navbar />}
-      <main className="flex-grow pb-28 lg:pb-16">
+      <main className={`${!isLoginPage && isAdmin ? "lg:pl-64" : ""} ${!isLoginPage ? "pb-24 lg:pb-0" : ""}`}>
         {children}
       </main>
     </div>
@@ -39,16 +41,9 @@ export const App: React.FC = () => {
     <Router>
       <AppLayout>
         <Routes>
-          {/* Public Login Route */}
           <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* Root Redirect based on session */}
-          <Route 
-            path="/" 
-            element={<Navigate to="/login" replace />} 
-          />
-
-          {/* Employee Protected Routes */}
           <Route
             path="/employee/dashboard"
             element={
@@ -58,10 +53,18 @@ export const App: React.FC = () => {
             }
           />
           <Route
-            path="/employee/today-report"
+            path="/employee/daily-sales"
             element={
               <ProtectedRoute allowedRoles={["Employee"]}>
-                <TodayReport />
+                <DailySalesEntry />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employee/closing"
+            element={
+              <ProtectedRoute allowedRoles={["Employee"]}>
+                <EodClosing />
               </ProtectedRoute>
             }
           />
@@ -74,12 +77,35 @@ export const App: React.FC = () => {
             }
           />
 
-          {/* Admin Protected Routes */}
           <Route
             path="/admin/dashboard"
             element={
               <ProtectedRoute allowedRoles={["Admin"]}>
                 <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/shops"
+            element={
+              <ProtectedRoute allowedRoles={["Admin"]}>
+                <Shops />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/employees"
+            element={
+              <ProtectedRoute allowedRoles={["Admin"]}>
+                <ManageEmployees />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/products"
+            element={
+              <ProtectedRoute allowedRoles={["Admin"]}>
+                <ManageProducts />
               </ProtectedRoute>
             }
           />
@@ -108,6 +134,14 @@ export const App: React.FC = () => {
             }
           />
           <Route
+            path="/admin/collections"
+            element={
+              <ProtectedRoute allowedRoles={["Admin"]}>
+                <Collections />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin/credit-sales"
             element={
               <ProtectedRoute allowedRoles={["Admin"]}>
@@ -124,23 +158,14 @@ export const App: React.FC = () => {
             }
           />
           <Route
-            path="/admin/products"
+            path="/admin/live-weight"
             element={
               <ProtectedRoute allowedRoles={["Admin"]}>
-                <ManageProducts />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin/employees"
-            element={
-              <ProtectedRoute allowedRoles={["Admin"]}>
-                <ManageEmployees />
+                <LiveWeight />
               </ProtectedRoute>
             }
           />
 
-          {/* Catch-all Redirect */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </AppLayout>

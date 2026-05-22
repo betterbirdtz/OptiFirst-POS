@@ -15,7 +15,7 @@ export const PaperReportHeader: React.FC<PaperReportHeaderProps> = ({
     <div className="border border-border rounded-2xl bg-card p-5 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-extrabold uppercase tracking-wide text-primary">OptiFirst POS</p>
+          <p className="text-xs font-extrabold uppercase tracking-wide text-primary">OPTIFIRST TZ LIMITED</p>
           <h2 className="mt-1 text-lg font-black text-foreground">{title}</h2>
           <p className="mt-1 text-xs text-muted-foreground">Paper-style report preview for printing and export.</p>
         </div>

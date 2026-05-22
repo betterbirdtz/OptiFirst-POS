@@ -110,11 +110,12 @@ export const MyReports: React.FC = () => {
           actualClosing: Number(stock.ActualClosing)
         }));
 
-        // Navigate to wizard and pass this state
-        navigate("/employee/today-report", { 
+        // Navigate to EOD closing and pass this state
+        navigate("/employee/closing", { 
           state: { 
             resubmitReport: {
               reportId: report.ReportID,
+              shopId: report.ShopID,
               date: report.Date.split("T")[0],
               salesEntries: mappedSales,
               stockEntries: mappedStock

@@ -14,7 +14,7 @@ export function normalizeSheetDate(value: string | Date | undefined): string {
 export function formatDateForDisplay(value: string | Date | undefined): string {
   const normalized = normalizeSheetDate(value);
   if (!normalized) return "-";
-  return new Date(`${normalized}T00:00:00`).toLocaleDateString("en-IN", {
+  return new Date(`${normalized}T00:00:00`).toLocaleDateString("en-TZ", {
     day: "2-digit",
     month: "short",
     year: "numeric"
@@ -25,7 +25,7 @@ export function formatDateTimeForDisplay(value: string | Date | undefined): stri
   if (!value) return "-";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("en-IN", {
+  return date.toLocaleString("en-TZ", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -41,4 +41,28 @@ export function getDateRangeLabel(startDate?: string, endDate?: string): string 
   if (startDate) return formatDateForDisplay(startDate);
   if (endDate) return formatDateForDisplay(endDate);
   return "All dates";
+}
+
+export function getMonthInputValue(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+export function getMonthDateRange(month: string): { startDate: string; endDate: string } {
+  const [yearRaw, monthRaw] = month.split("-");
+  const year = Number(yearRaw);
+  const monthIndex = Number(monthRaw) - 1;
+  const start = new Date(year, monthIndex, 1);
+  const end = new Date(year, monthIndex + 1, 0);
+  return {
+    startDate: getLocalDateInputValue(start),
+    endDate: getLocalDateInputValue(end)
+  };
+}
+
+export function getDayName(value: string): string {
+  const normalized = normalizeSheetDate(value);
+  if (!normalized) return "";
+  return new Date(`${normalized}T00:00:00`).toLocaleDateString("en-TZ", { weekday: "long" });
 }

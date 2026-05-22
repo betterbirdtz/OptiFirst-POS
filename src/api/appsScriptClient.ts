@@ -1,49 +1,93 @@
 import type {
+  CollectionEntry,
+  CollectionSubmission,
   CreditSalesEntry,
+  DailyReport,
   DailyReportSubmission,
   DailySalesEntry,
   DailyStockEntry,
-  DailySummaryEntry,
-  Employee,
+  DashboardData,
   OpeningStockEntry,
   Product,
-  UserSession
+  ReportStatus,
+  Shop,
+  StockSubmissionItem,
+  User,
+  UserSession,
+  LiveWeightEntry
 } from "../types";
-import { getLocalDateInputValue } from "../utils/date";
+import {
+  calculateActualCollection,
+  calculateBankDepositDifference,
+  calculateCollectionVariance,
+  calculateExpectedClosing,
+  calculateMismatch,
+  calculateSalesAmount,
+  calculateSalesVsEfd,
+  toNumber
+} from "../utils/calculations";
+import { getDayName, getLocalDateInputValue, getMonthInputValue, normalizeSheetDate } from "../utils/date";
 
-interface ApiResponse {
+export interface ApiResponse {
   success: boolean;
   error?: string;
+  message?: string;
   user?: UserSession;
+  shops?: Shop[];
+  users?: User[];
+  employees?: User[];
   products?: Product[];
-  employees?: Employee[];
-  openingStock?: OpeningStockEntry[];
-  summaries?: DailySummaryEntry[];
+  report?: DailyReport;
+  reports?: DailyReport[];
+  summaries?: DailyReport[];
   sales?: DailySalesEntry[];
   stocks?: DailyStockEntry[];
+  collections?: CollectionEntry[];
+  collection?: CollectionEntry;
   creditSales?: CreditSalesEntry[];
-  reports?: DailySummaryEntry[];
-  stats?: unknown;
-  recentSummaries?: DailySummaryEntry[];
+  openingStock?: OpeningStockEntry[];
+  dashboard?: DashboardData;
+  stats?: DashboardData["stats"];
+  recentSummaries?: DailyReport[];
   reportId?: string;
   totalSales?: number;
   cashSales?: number;
   creditSalesAmount?: number;
   mismatchCount?: number;
+  shopId?: string;
+  userId?: string;
   employeeId?: string;
   productId?: string;
+  liveWeight?: unknown[];
 }
 
+type ApiData = Record<string, unknown>;
+
+const MOCK_SCHEMA_VERSION = "2026-05-collection-settlement-v1";
+
 const STORAGE_KEYS = {
-  employees: "db_employees",
-  products: "db_products",
-  openingStock: "db_opening_stock",
-  dailySales: "db_daily_sales",
-  dailyStock: "db_daily_stock",
-  dailySummary: "db_daily_summary",
-  creditSales: "db_credit_sales",
-  logs: "db_logs"
+  version: "opti_schema_version",
+  shops: "opti_shops",
+  users: "opti_users",
+  products: "opti_products",
+  reports: "opti_daily_reports",
+  sales: "opti_daily_sales_entries",
+  stocks: "opti_daily_stock_entries",
+  collections: "opti_collections",
+  liveWeight: "opti_live_weight",
+  logs: "opti_logs"
 };
+
+const legacyKeys = [
+  "db_employees",
+  "db_products",
+  "db_opening_stock",
+  "db_daily_sales",
+  "db_daily_stock",
+  "db_daily_summary",
+  "db_credit_sales",
+  "db_logs"
+];
 
 const getApiUrl = (): string => {
   const url = import.meta.env.VITE_APPS_SCRIPT_URL || "";
@@ -55,7 +99,7 @@ export const isMockMode = (): boolean => {
   return !url || url.includes("YOUR_DEPLOYED_ID_HERE");
 };
 
-function parseStored<T>(key: string, fallback: T[]): T[] {
+function parseStored<T>(key: string, fallback: T[] = []): T[] {
   try {
     const raw = localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T[]) : fallback;
@@ -68,72 +112,413 @@ function setStored<T>(key: string, value: T[]) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function initMockDb() {
-  if (!localStorage.getItem(STORAGE_KEYS.employees)) {
-    setStored<Employee>(STORAGE_KEYS.employees, [
-      { EmployeeID: "EMP001", Name: "Admin User", Phone: "+1234567890", PIN: "1234", Role: "Admin", Status: "Active", CreatedAt: new Date().toISOString() },
-      { EmployeeID: "EMP002", Name: "Sales Employee", Phone: "+1234567891", PIN: "5678", Role: "Employee", Status: "Active", CreatedAt: new Date().toISOString() }
+function generateId(prefix: string): string {
+  return `${prefix}${Date.now()}${Math.floor(Math.random() * 1000)}`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function resetMockDbIfNeeded() {
+  if (localStorage.getItem(STORAGE_KEYS.version) === MOCK_SCHEMA_VERSION) return;
+
+  Object.values(STORAGE_KEYS).forEach((key) => {
+    if (key !== STORAGE_KEYS.version) localStorage.removeItem(key);
+  });
+  legacyKeys.forEach((key) => localStorage.removeItem(key));
+  localStorage.setItem(STORAGE_KEYS.version, MOCK_SCHEMA_VERSION);
+}
+
+function seedMockDb() {
+  resetMockDbIfNeeded();
+  const createdAt = nowIso();
+
+  if (!localStorage.getItem(STORAGE_KEYS.shops)) {
+    setStored<Shop>(STORAGE_KEYS.shops, [
+      {
+        ShopID: "SHOP001",
+        ShopName: "Kisutu",
+        Location: "Kisutu",
+        InchargeName: "Kisutu Incharge",
+        InchargeContact: "+255700000001",
+        Status: "Active",
+        CreatedAt: createdAt
+      },
+      {
+        ShopID: "SHOP002",
+        ShopName: "Kigamboni",
+        Location: "Kigamboni",
+        InchargeName: "Kigamboni Incharge",
+        InchargeContact: "+255700000002",
+        Status: "Active",
+        CreatedAt: createdAt
+      },
+      {
+        ShopID: "SHOP003",
+        ShopName: "Utumbo",
+        Location: "Utumbo",
+        InchargeName: "Utumbo Incharge",
+        InchargeContact: "+255700000003",
+        Status: "Active",
+        CreatedAt: createdAt
+      }
+    ]);
+  }
+
+  if (!localStorage.getItem(STORAGE_KEYS.users)) {
+    setStored<User>(STORAGE_KEYS.users, [
+      {
+        UserID: "USR001",
+        EmployeeID: "USR001",
+        Name: "Admin User",
+        Phone: "+255700000000",
+        PIN: "1234",
+        Role: "Admin",
+        ShopID: "",
+        Status: "Active",
+        CreatedAt: createdAt
+      },
+      {
+        UserID: "USR002",
+        EmployeeID: "USR002",
+        Name: "Kisutu Employee",
+        Phone: "+255700000101",
+        PIN: "1111",
+        Role: "Employee",
+        ShopID: "SHOP001",
+        Status: "Active",
+        CreatedAt: createdAt
+      },
+      {
+        UserID: "USR003",
+        EmployeeID: "USR003",
+        Name: "Kigamboni Employee",
+        Phone: "+255700000102",
+        PIN: "2222",
+        Role: "Employee",
+        ShopID: "SHOP002",
+        Status: "Active",
+        CreatedAt: createdAt
+      },
+      {
+        UserID: "USR004",
+        EmployeeID: "USR004",
+        Name: "Utumbo Employee",
+        Phone: "+255700000103",
+        PIN: "3333",
+        Role: "Employee",
+        ShopID: "SHOP003",
+        Status: "Active",
+        CreatedAt: createdAt
+      }
     ]);
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.products)) {
     setStored<Product>(STORAGE_KEYS.products, [
-      { ProductID: "PROD001", ProductName: "Apple", Category: "Fruit", UOM: "KG", DefaultRate: 150, Active: "Yes" },
-      { ProductID: "PROD002", ProductName: "Banana", Category: "Fruit", UOM: "Dozen", DefaultRate: 60, Active: "Yes" },
-      { ProductID: "PROD003", ProductName: "Milk", Category: "Dairy", UOM: "Litre", DefaultRate: 50, Active: "Yes" },
-      { ProductID: "PROD004", ProductName: "Bread", Category: "Bakery", UOM: "Packet", DefaultRate: 40, Active: "Yes" },
-      { ProductID: "PROD005", ProductName: "Eggs", Category: "Bakery", UOM: "Box", DefaultRate: 120, Active: "Yes" },
-      { ProductID: "PROD006", ProductName: "Rice", Category: "Grocery", UOM: "KG", DefaultRate: 80, Active: "Yes" }
+      { ProductID: "PROD001", ProductName: "Live Chicken", Category: "Chicken", UOM: "KG", DefaultRate: 7500, Active: "Yes", CreatedAt: createdAt },
+      { ProductID: "PROD002", ProductName: "Dressed Chicken", Category: "Chicken", UOM: "KG", DefaultRate: 9500, Active: "Yes", CreatedAt: createdAt },
+      { ProductID: "PROD003", ProductName: "Broiler Chicken", Category: "Chicken", UOM: "Bird", DefaultRate: 11000, Active: "Yes", CreatedAt: createdAt },
+      { ProductID: "PROD004", ProductName: "Chicken Parts", Category: "Chicken", UOM: "KG", DefaultRate: 8500, Active: "Yes", CreatedAt: createdAt },
+      { ProductID: "PROD005", ProductName: "Egg Tray", Category: "Eggs", UOM: "Tray", DefaultRate: 9000, Active: "Yes", CreatedAt: createdAt },
+      { ProductID: "PROD006", ProductName: "Loose Eggs", Category: "Eggs", UOM: "Piece", DefaultRate: 350, Active: "Yes", CreatedAt: createdAt }
     ]);
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.openingStock)) {
-    setStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, [
-      { ProductID: "PROD001", ProductName: "Apple", CurrentOpeningStock: 100, LastUpdatedDate: new Date().toISOString() },
-      { ProductID: "PROD002", ProductName: "Banana", CurrentOpeningStock: 100, LastUpdatedDate: new Date().toISOString() },
-      { ProductID: "PROD003", ProductName: "Milk", CurrentOpeningStock: 150, LastUpdatedDate: new Date().toISOString() },
-      { ProductID: "PROD004", ProductName: "Bread", CurrentOpeningStock: 75, LastUpdatedDate: new Date().toISOString() },
-      { ProductID: "PROD005", ProductName: "Eggs", CurrentOpeningStock: 50, LastUpdatedDate: new Date().toISOString() },
-      { ProductID: "PROD006", ProductName: "Rice", CurrentOpeningStock: 200, LastUpdatedDate: new Date().toISOString() }
-    ]);
+  if (!localStorage.getItem(STORAGE_KEYS.reports)) setStored<DailyReport>(STORAGE_KEYS.reports, []);
+  if (!localStorage.getItem(STORAGE_KEYS.sales)) setStored<DailySalesEntry>(STORAGE_KEYS.sales, []);
+  if (!localStorage.getItem(STORAGE_KEYS.stocks)) setStored<DailyStockEntry>(STORAGE_KEYS.stocks, []);
+  if (!localStorage.getItem(STORAGE_KEYS.collections)) setStored<CollectionEntry>(STORAGE_KEYS.collections, []);
+  if (!localStorage.getItem(STORAGE_KEYS.liveWeight)) setStored<unknown>(STORAGE_KEYS.liveWeight, []);
+  if (!localStorage.getItem(STORAGE_KEYS.logs)) setStored<unknown>(STORAGE_KEYS.logs, []);
+
+  if (getReports().length === 0 && getSales().length === 0 && getCollections().length === 0) {
+    seedSampleCollections(createdAt);
   }
-
-  if (!localStorage.getItem(STORAGE_KEYS.dailySales)) setStored<DailySalesEntry>(STORAGE_KEYS.dailySales, []);
-  if (!localStorage.getItem(STORAGE_KEYS.dailyStock)) setStored<DailyStockEntry>(STORAGE_KEYS.dailyStock, []);
-  if (!localStorage.getItem(STORAGE_KEYS.dailySummary)) setStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []);
-  if (!localStorage.getItem(STORAGE_KEYS.creditSales)) setStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, []);
-  if (!localStorage.getItem(STORAGE_KEYS.logs)) setStored<Record<string, string>>(STORAGE_KEYS.logs, []);
 }
 
-function getEmployees() {
-  return parseStored<Employee>(STORAGE_KEYS.employees, []);
+function seedSampleCollections(createdAt: string) {
+  const today = getLocalDateInputValue();
+  const shops = getShops();
+  const users = getUsers().filter((user) => user.Role === "Employee");
+  const sampleDates = [today, today, today, `${today.slice(0, 8)}15`, `${today.slice(0, 8)}12`];
+  const samples = [
+    { shopId: "SHOP001", employeeId: "USR002", date: sampleDates[0], cash: 180000, credit: 25000, depositCash: 180000, lipa: 0, bank: 180000, efd: 205000, status: "Approved" as const, remarks: "" },
+    { shopId: "SHOP002", employeeId: "USR003", date: sampleDates[1], cash: 140000, credit: 0, depositCash: 90000, lipa: 50000, bank: 90000, efd: 140000, status: "Submitted" as const, remarks: "LIPA received at closing." },
+    { shopId: "SHOP003", employeeId: "USR004", date: sampleDates[2], cash: 125000, credit: 15000, depositCash: 118000, lipa: 0, bank: 118000, efd: 140000, status: "Submitted" as const, remarks: "Cash shortage under review." },
+    { shopId: "SHOP001", employeeId: "USR002", date: sampleDates[3], cash: 90000, credit: 10000, depositCash: 90000, lipa: 0, bank: 90000, efd: 95000, status: "Submitted" as const, remarks: "EFD Z report differs from sales." },
+    { shopId: "SHOP002", employeeId: "USR003", date: sampleDates[4], cash: 110000, credit: 0, depositCash: 110000, lipa: 0, bank: 100000, efd: 110000, status: "Submitted" as const, remarks: "Bank deposit short by 10,000." }
+  ];
+
+  const reports: DailyReport[] = [];
+  const sales: DailySalesEntry[] = [];
+  const collections: CollectionEntry[] = [];
+
+  samples.forEach((sample, index) => {
+    const shop = shops.find((item) => item.ShopID === sample.shopId);
+    const user = users.find((item) => item.UserID === sample.employeeId);
+    if (!shop || !user) return;
+    const reportId = `REP-SAMPLE-${index + 1}`;
+    const cashSaleId = `SAL-SAMPLE-CASH-${index + 1}`;
+    const creditSaleId = `SAL-SAMPLE-CREDIT-${index + 1}`;
+    reports.push({
+      ReportID: reportId,
+      ShopID: shop.ShopID,
+      ShopName: shop.ShopName,
+      Date: sample.date,
+      EmployeeID: user.UserID,
+      EmployeeName: user.Name,
+      SalesSubmitted: "Yes",
+      StockSubmitted: "Yes",
+      Status: "Submitted",
+      SubmittedAt: createdAt,
+      ApprovedBy: "",
+      ApprovedAt: "",
+      TotalSales: sample.cash + sample.credit,
+      CashSales: sample.cash,
+      CreditSales: sample.credit,
+      StockMismatch: index === 2 ? 1 : 0
+    });
+    sales.push({
+      EntryID: cashSaleId,
+      ReportID: reportId,
+      ShopID: shop.ShopID,
+      ShopName: shop.ShopName,
+      Date: sample.date,
+      EmployeeID: user.UserID,
+      EmployeeName: user.Name,
+      ProductID: "PROD001",
+      ProductName: "Live Chicken",
+      UOM: "KG",
+      Quantity: 24,
+      Rate: sample.cash / 24,
+      SaleType: "Cash",
+      CashSales: sample.cash,
+      CreditSales: 0,
+      EFDNumber: "",
+      CustomerName: "",
+      TotalAmount: sample.cash,
+      CreatedAt: createdAt
+    });
+    if (sample.credit > 0) {
+      sales.push({
+        EntryID: creditSaleId,
+        ReportID: reportId,
+        ShopID: shop.ShopID,
+        ShopName: shop.ShopName,
+        Date: sample.date,
+        EmployeeID: user.UserID,
+        EmployeeName: user.Name,
+        ProductID: "PROD002",
+        ProductName: "Dressed Chicken",
+        UOM: "KG",
+        Quantity: 5,
+        Rate: sample.credit / 5,
+        SaleType: "Credit",
+        CashSales: 0,
+        CreditSales: sample.credit,
+        EFDNumber: "",
+        CustomerName: "Credit Customer",
+        TotalAmount: sample.credit,
+        CreatedAt: createdAt
+      });
+    }
+
+    const actual = calculateActualCollection(sample.depositCash, sample.lipa);
+    collections.push({
+      CollectionID: `COL-SAMPLE-${index + 1}`,
+      ReportID: reportId,
+      ShopID: shop.ShopID,
+      ShopName: shop.ShopName,
+      Date: sample.date,
+      Month: sample.date.slice(0, 7),
+      Day: getDayName(sample.date),
+      EmployeeID: user.UserID,
+      EmployeeName: user.Name,
+      CashSales: sample.cash,
+      CreditSales: sample.credit,
+      TotalSales: sample.cash + sample.credit,
+      DepositCash: sample.depositCash,
+      DepositLIPA: sample.lipa,
+      ExpectedCollection: sample.cash,
+      ActualCollection: actual,
+      Variance: calculateCollectionVariance(sample.cash, sample.depositCash, sample.lipa),
+      DepositInBank: sample.bank,
+      BankDepositDifference: calculateBankDepositDifference(sample.depositCash, sample.bank),
+      DateOfDeposit: sample.date,
+      EFDZReport: sample.efd,
+      SalesVsEFD: calculateSalesVsEfd(sample.cash + sample.credit, sample.efd),
+      Name: user.Name,
+      Signature: "Confirmed",
+      Remarks: sample.remarks,
+      Status: sample.status,
+      AdminNote: "",
+      SubmittedAt: createdAt,
+      UpdatedAt: createdAt,
+      ApprovedBy: sample.status === "Approved" ? "USR001" : "",
+      ApprovedAt: sample.status === "Approved" ? createdAt : ""
+    });
+  });
+
+  setStored<DailyReport>(STORAGE_KEYS.reports, reports);
+  setStored<DailySalesEntry>(STORAGE_KEYS.sales, sales);
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, collections);
 }
 
-function getProducts() {
+function getShops(): Shop[] {
+  return parseStored<Shop>(STORAGE_KEYS.shops, []);
+}
+
+function getUsers(): User[] {
+  const shops = getShops();
+  return parseStored<User>(STORAGE_KEYS.users, []).map((user) => {
+    const shop = shops.find((item) => item.ShopID === user.ShopID);
+    return {
+      ...user,
+      EmployeeID: user.EmployeeID || user.UserID,
+      ShopName: shop?.ShopName || ""
+    };
+  });
+}
+
+function getProducts(): Product[] {
   return parseStored<Product>(STORAGE_KEYS.products, []);
 }
 
-function validateSubmission(submission: DailyReportSubmission): string | null {
-  const employees = getEmployees();
+function getReports(): DailyReport[] {
+  return parseStored<DailyReport>(STORAGE_KEYS.reports, []);
+}
+
+function getSales(): DailySalesEntry[] {
+  return parseStored<DailySalesEntry>(STORAGE_KEYS.sales, []);
+}
+
+function getStocks(): DailyStockEntry[] {
+  return parseStored<DailyStockEntry>(STORAGE_KEYS.stocks, []);
+}
+
+function getCollections(): CollectionEntry[] {
+  return parseStored<CollectionEntry>(STORAGE_KEYS.collections, []);
+}
+
+function withoutPin(user: User): User {
+  const safe = { ...user, EmployeeID: user.EmployeeID || user.UserID };
+  delete safe.PIN;
+  return safe;
+}
+
+function toSession(user: User): UserSession {
+  const shop = getShops().find((item) => item.ShopID === user.ShopID);
+  return {
+    userId: user.UserID,
+    employeeId: user.UserID,
+    name: user.Name,
+    phone: user.Phone,
+    role: user.Role,
+    shopId: user.ShopID || "",
+    shopName: shop?.ShopName || "",
+    status: user.Status,
+    allowMultiShop: user.Role === "Admin"
+  };
+}
+
+function isDateInRange(value: string, startDate?: string, endDate?: string): boolean {
+  const date = normalizeSheetDate(value);
+  if (startDate && date < startDate) return false;
+  if (endDate && date > endDate) return false;
+  return true;
+}
+
+function isMonth(value: string, month?: string): boolean {
+  return !month || normalizeSheetDate(value).startsWith(month);
+}
+
+function filterShop<T extends { ShopID: string }>(rows: T[], shopId?: string): T[] {
+  return shopId ? rows.filter((row) => row.ShopID === shopId) : rows;
+}
+
+function reportTotals(reportId: string) {
+  const reportSales = getSales().filter((sale) => sale.ReportID === reportId);
+  const reportStocks = getStocks().filter((stock) => stock.ReportID === reportId);
+  return {
+    CashSales: reportSales.reduce((sum, sale) => sum + toNumber(sale.CashSales), 0),
+    CreditSales: reportSales.reduce((sum, sale) => sum + toNumber(sale.CreditSales), 0),
+    TotalSales: reportSales.reduce((sum, sale) => sum + toNumber(sale.TotalAmount), 0),
+    StockMismatch: reportStocks.filter((stock) => toNumber(stock.Mismatch) !== 0).length
+  };
+}
+
+function enrichReport(report: DailyReport): DailyReport {
+  return { ...report, ...reportTotals(report.ReportID) };
+}
+
+function getEmployeeName(userId: string): string {
+  return getUsers().find((user) => user.UserID === userId)?.Name || "";
+}
+
+function withEmployeeName<T extends { EmployeeID: string; EmployeeName?: string }>(row: T): T & { EmployeeName: string } {
+  return { ...row, EmployeeName: row.EmployeeName || getEmployeeName(row.EmployeeID) };
+}
+
+function removeRowsForReport(reportId: string, mode: "sales" | "stock" | "full") {
+  if (mode !== "stock") {
+    setStored<DailySalesEntry>(STORAGE_KEYS.sales, getSales().filter((row) => row.ReportID !== reportId));
+  }
+  if (mode !== "sales") {
+    setStored<DailyStockEntry>(STORAGE_KEYS.stocks, getStocks().filter((row) => row.ReportID !== reportId));
+  }
+}
+
+function getSalesQuantityByProduct(shopId: string, date: string): Map<string, number> {
+  const quantities = new Map<string, number>();
+  getSales()
+    .filter((sale) => sale.ShopID === shopId && normalizeSheetDate(sale.Date) === normalizeSheetDate(date))
+    .forEach((sale) => {
+      quantities.set(sale.ProductID, (quantities.get(sale.ProductID) || 0) + toNumber(sale.Quantity));
+    });
+  return quantities;
+}
+
+function recalculateExistingStockSales(reportId: string, shopId: string, date: string) {
+  const quantities = getSalesQuantityByProduct(shopId, date);
+  const stockRows = getStocks().map((stock) => {
+    if (stock.ReportID !== reportId) return stock;
+    const sales = quantities.get(stock.ProductID) || 0;
+    const expected = calculateExpectedClosing(stock.OpeningStock, stock.Receipt, sales);
+    return {
+      ...stock,
+      Sales: sales,
+      ExpectedClosing: expected,
+      Mismatch: calculateMismatch(stock.ActualClosing, expected)
+    };
+  });
+  setStored<DailyStockEntry>(STORAGE_KEYS.stocks, stockRows);
+}
+
+function validateSubmission(submission: DailyReportSubmission, requireSales: boolean, requireStock: boolean): string | null {
+  const user = getUsers().find((item) => item.UserID === submission.employeeId);
+  const shop = getShops().find((item) => item.ShopID === submission.shopId);
   const products = getProducts();
-  const employee = employees.find((item) => item.EmployeeID === submission.employeeId);
 
-  if (!employee || employee.Status !== "Active") return "Active employee account is required to submit a report.";
-  if (employee.Role !== "Employee") return "Only employee accounts can submit daily reports.";
+  if (!user || user.Status !== "Active") return "Active employee account is required.";
+  if (user.Role !== "Employee") return "Only employees can submit daily reports.";
+  if (!shop || shop.Status !== "Active") return "An active shop is required.";
+  if (user.ShopID && user.ShopID !== submission.shopId) return "Employee can submit only for their assigned shop.";
   if (!submission.date) return "Report date is required.";
-  if (!Array.isArray(submission.stockEntries) || submission.stockEntries.length === 0) return "Stock entries are required.";
+  if (requireSales && (!submission.salesEntries || submission.salesEntries.length === 0)) return "At least one sales item is required.";
+  if (requireStock && (!submission.stockEntries || submission.stockEntries.length === 0)) return "Stock entries are required.";
 
-  const activeProductIds = new Set(products.filter((product) => product.Active === "Yes").map((product) => product.ProductID));
-
+  const activeProducts = new Set(products.filter((product) => product.Active === "Yes").map((product) => product.ProductID));
   for (const sale of submission.salesEntries || []) {
-    if (!activeProductIds.has(sale.productId)) return `Inactive or unknown product in sales: ${sale.productName}`;
-    if (!Number.isFinite(Number(sale.quantity)) || Number(sale.quantity) <= 0) return `Invalid quantity for ${sale.productName}.`;
-    if (!Number.isFinite(Number(sale.rate)) || Number(sale.rate) < 0) return `Invalid rate for ${sale.productName}.`;
+    if (!activeProducts.has(sale.productId)) return `Inactive or unknown product in sales: ${sale.productName}`;
+    if (toNumber(sale.quantity) <= 0) return `Invalid quantity for ${sale.productName}.`;
+    if (toNumber(sale.rate) < 0) return `Invalid rate for ${sale.productName}.`;
     if (sale.saleType === "Credit" && !sale.customerName?.trim()) return `Customer name is required for credit sale: ${sale.productName}.`;
   }
 
-  for (const stock of submission.stockEntries) {
-    if (!activeProductIds.has(stock.productId)) return `Inactive or unknown product in stock: ${stock.productName}`;
+  for (const stock of submission.stockEntries || []) {
+    if (!activeProducts.has(stock.productId)) return `Inactive or unknown product in stock: ${stock.productName}`;
     if (!Number.isFinite(Number(stock.openingStock))) return `Invalid opening stock for ${stock.productName}.`;
     if (!Number.isFinite(Number(stock.receipt))) return `Invalid receipt for ${stock.productName}.`;
     if (!Number.isFinite(Number(stock.sales))) return `Invalid sales quantity for ${stock.productName}.`;
@@ -143,366 +528,756 @@ function validateSubmission(submission: DailyReportSubmission): string | null {
   return null;
 }
 
-function removeRowsForReport(reportId: string) {
-  setStored<DailySalesEntry>(
-    STORAGE_KEYS.dailySales,
-    parseStored<DailySalesEntry>(STORAGE_KEYS.dailySales, []).filter((row) => row.ReportID !== reportId)
-  );
-  setStored<DailyStockEntry>(
-    STORAGE_KEYS.dailyStock,
-    parseStored<DailyStockEntry>(STORAGE_KEYS.dailyStock, []).filter((row) => row.ReportID !== reportId)
-  );
-  setStored<CreditSalesEntry>(
-    STORAGE_KEYS.creditSales,
-    parseStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, []).filter((row) => row.ReportID !== reportId)
-  );
-}
+function buildBaseCollection(shopId: string, date: string, reportId?: string, employeeId?: string, employeeName?: string): CollectionEntry {
+  const collections = getCollections();
+  const shop = getShops().find((item) => item.ShopID === shopId);
+  const reportDate = normalizeSheetDate(date);
+  const report = reportId
+    ? getReports().find((row) => row.ReportID === reportId)
+    : getReports().find((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === reportDate);
+  const month = reportDate.slice(0, 7);
+  const sales = getSales().filter((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === reportDate);
+  const cashSales = sales.reduce((sum, row) => sum + toNumber(row.CashSales), 0);
+  const creditSales = sales.reduce((sum, row) => sum + toNumber(row.CreditSales), 0);
+  const totalSales = cashSales + creditSales;
+  const existingIndex = collections.findIndex((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === reportDate);
+  const existing = existingIndex >= 0 ? collections[existingIndex] : undefined;
+  const depositCash = toNumber(existing?.DepositCash);
+  const depositLIPA = toNumber(existing?.DepositLIPA);
+  const depositInBank = toNumber(existing?.DepositInBank);
+  const efdZReport = toNumber(existing?.EFDZReport);
+  const actualCollection = calculateActualCollection(depositCash, depositLIPA);
+  const variance = calculateCollectionVariance(cashSales, depositCash, depositLIPA);
+  const bankDepositDifference = calculateBankDepositDifference(depositCash, depositInBank);
+  const salesVsEFD = calculateSalesVsEfd(totalSales, efdZReport);
 
-function submitMockDailyReport(submission: DailyReportSubmission): ApiResponse {
-  const validationError = validateSubmission(submission);
-  if (validationError) return { success: false, error: validationError };
-
-  const summaries = parseStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []);
-  const correctionIndex = submission.reportId
-    ? summaries.findIndex((summary) => summary.ReportID === submission.reportId)
-    : -1;
-
-  if (submission.reportId) {
-    if (correctionIndex === -1) return { success: false, error: "Reopened report was not found." };
-    if (summaries[correctionIndex].Status !== "Reopened") return { success: false, error: "Only reopened reports can be corrected." };
-    removeRowsForReport(submission.reportId);
-  }
-
-  const reportId = submission.reportId || `REP${Date.now()}${Math.floor(Math.random() * 1000)}`;
-  const dateStr = submission.date || getLocalDateInputValue();
-  const salesRows = parseStored<DailySalesEntry>(STORAGE_KEYS.dailySales, []);
-  const stockRows = parseStored<DailyStockEntry>(STORAGE_KEYS.dailyStock, []);
-  const creditRows = parseStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, []);
-  const openingRows = parseStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, []);
-
-  let totalSales = 0;
-  let cashSales = 0;
-  let creditSales = 0;
-  let mismatchCount = 0;
-  const createdAt = new Date().toISOString();
-
-  submission.salesEntries.forEach((sale) => {
-    const totalAmount = Number(sale.quantity) * Number(sale.rate);
-    const cashAmount = sale.saleType === "Cash" ? totalAmount : 0;
-    const creditAmount = sale.saleType === "Credit" ? totalAmount : 0;
-    totalSales += totalAmount;
-    cashSales += cashAmount;
-    creditSales += creditAmount;
-
-    salesRows.push({
-      ReportID: reportId,
-      Date: dateStr,
-      EmployeeID: submission.employeeId,
-      EmployeeName: submission.employeeName,
-      ProductID: sale.productId,
-      ProductName: sale.productName,
-      UOM: sale.uom,
-      Quantity: Number(sale.quantity),
-      Rate: Number(sale.rate),
-      SaleType: sale.saleType,
-      CashSales: cashAmount,
-      CreditSales: creditAmount,
-      EFDNumber: sale.efdNumber || "",
-      CustomerName: sale.customerName || "",
-      TotalAmount: totalAmount,
-      CreatedAt: createdAt
-    });
-
-    if (sale.saleType === "Credit") {
-      creditRows.push({
-        ReportID: reportId,
-        Date: dateStr,
-        EmployeeID: submission.employeeId,
-        EmployeeName: submission.employeeName,
-        CustomerName: sale.customerName || "",
-        ProductName: sale.productName,
-        Amount: totalAmount,
-        EFDNumber: sale.efdNumber || "",
-        Status: "Pending Approval",
-        CreatedAt: createdAt
-      });
-    }
-  });
-
-  submission.stockEntries.forEach((stock) => {
-    const opening = Number(stock.openingStock);
-    const receipt = Number(stock.receipt || 0);
-    const sales = Number(stock.sales || 0);
-    const expected = opening + receipt - sales;
-    const actual = Number(stock.actualClosing);
-    const mismatch = actual - expected;
-    if (mismatch !== 0) mismatchCount += 1;
-
-    stockRows.push({
-      ReportID: reportId,
-      Date: dateStr,
-      EmployeeID: submission.employeeId,
-      EmployeeName: submission.employeeName,
-      ProductID: stock.productId,
-      ProductName: stock.productName,
-      Category: stock.category,
-      UOM: stock.uom,
-      OpeningStock: opening,
-      Receipt: receipt,
-      Sales: sales,
-      ExpectedClosing: expected,
-      ActualClosing: actual,
-      Mismatch: mismatch,
-      CreatedAt: createdAt
-    });
-
-    const openingIndex = openingRows.findIndex((row) => row.ProductID === stock.productId);
-    if (openingIndex >= 0) {
-      openingRows[openingIndex] = {
-        ...openingRows[openingIndex],
-        ProductName: stock.productName,
-        CurrentOpeningStock: actual,
-        LastUpdatedDate: createdAt
-      };
-    }
-  });
-
-  const summary: DailySummaryEntry = {
-    ReportID: reportId,
-    Date: dateStr,
-    EmployeeID: submission.employeeId,
-    EmployeeName: submission.employeeName,
-    TotalSales: totalSales,
+  return {
+    CollectionID: existing?.CollectionID || generateId("COL"),
+    ReportID: existing?.ReportID || report?.ReportID || reportId || "",
+    ShopID: shopId,
+    ShopName: shop?.ShopName || existing?.ShopName || "",
+    Date: reportDate,
+    Month: month,
+    Day: getDayName(date),
+    EmployeeID: existing?.EmployeeID || employeeId || report?.EmployeeID || "",
+    EmployeeName: existing?.EmployeeName || employeeName || report?.EmployeeName || "",
     CashSales: cashSales,
     CreditSales: creditSales,
-    TotalStockSales: totalSales,
-    StockMismatch: mismatchCount,
-    Status: "Pending Approval",
-    SubmittedAt: createdAt
+    TotalSales: totalSales,
+    DepositCash: depositCash,
+    DepositLIPA: depositLIPA,
+    ExpectedCollection: cashSales,
+    ActualCollection: actualCollection,
+    Variance: variance,
+    DepositInBank: depositInBank,
+    BankDepositDifference: bankDepositDifference,
+    DateOfDeposit: existing?.DateOfDeposit || "",
+    EFDZReport: efdZReport,
+    SalesVsEFD: salesVsEFD,
+    Name: existing?.Name || "",
+    Signature: existing?.Signature || "",
+    Remarks: existing?.Remarks || "",
+    Status: existing?.Status || "Draft",
+    AdminNote: existing?.AdminNote || "",
+    SubmittedAt: existing?.SubmittedAt || "",
+    UpdatedAt: existing?.UpdatedAt || nowIso(),
+    ApprovedBy: existing?.ApprovedBy || "",
+    ApprovedAt: existing?.ApprovedAt || ""
+  };
+}
+
+function upsertCollectionForShopDate(shopId: string, date: string, reportId?: string, employeeId?: string, employeeName?: string): CollectionEntry {
+  const collections = getCollections();
+  const reportDate = normalizeSheetDate(date);
+  const existingIndex = collections.findIndex((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === reportDate);
+  const next = {
+    ...buildBaseCollection(shopId, reportDate, reportId, employeeId, employeeName),
+    UpdatedAt: nowIso()
   };
 
-  if (correctionIndex >= 0) {
-    summaries[correctionIndex] = summary;
-  } else {
-    summaries.push(summary);
+  if (existingIndex >= 0) collections[existingIndex] = next;
+  else collections.push(next);
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, collections);
+  return next;
+}
+
+function filterCollections(data: ApiData): CollectionEntry[] {
+  const month = data.month ? String(data.month) : "";
+  const startDate = data.startDate ? String(data.startDate) : "";
+  const endDate = data.endDate ? String(data.endDate) : "";
+  const status = data.status ? String(data.status) : "";
+  const search = data.search ? String(data.search).toLowerCase() : "";
+  return getCollections()
+    .filter((row) => !month || row.Month === month)
+    .filter((row) => isDateInRange(row.Date, startDate || undefined, endDate || undefined))
+    .filter((row) => !data.shopId || row.ShopID === String(data.shopId))
+    .filter((row) => !status || row.Status === status)
+    .filter((row) => !search || row.EmployeeName.toLowerCase().includes(search) || row.Name.toLowerCase().includes(search))
+    .sort((a, b) => a.Date.localeCompare(b.Date) || a.ShopName.localeCompare(b.ShopName));
+}
+
+function submitMockCollection(submission: CollectionSubmission): ApiResponse {
+  const user = getUsers().find((item) => item.UserID === submission.employeeId);
+  const shop = getShops().find((item) => item.ShopID === submission.shopId);
+  if (!user || user.Role !== "Employee" || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
+  if (!shop || shop.Status !== "Active") return { success: false, error: "Active shop is required." };
+  if (user.ShopID && user.ShopID !== submission.shopId) return { success: false, error: "Employee can submit collection only for their assigned shop." };
+  if (!submission.signature?.trim()) return { success: false, error: "Signature confirmation is required before submitting collection." };
+
+  const reportDate = normalizeSheetDate(submission.date);
+  let base = upsertCollectionForShopDate(submission.shopId, reportDate, submission.reportId, submission.employeeId, submission.employeeName);
+  if (!base.ReportID) {
+    const existingReport = getReports().find((row) => row.ShopID === submission.shopId && normalizeSheetDate(row.Date) === reportDate);
+    if (existingReport) base = { ...base, ReportID: existingReport.ReportID };
   }
 
-  setStored<DailySalesEntry>(STORAGE_KEYS.dailySales, salesRows);
-  setStored<DailyStockEntry>(STORAGE_KEYS.dailyStock, stockRows);
-  setStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, creditRows);
-  setStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, openingRows);
-  setStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, summaries);
+  const depositCash = toNumber(submission.depositCash);
+  const depositLIPA = toNumber(submission.depositLIPA);
+  const depositInBank = toNumber(submission.depositInBank);
+  const efdZReport = toNumber(submission.efdZReport);
+  const collections = getCollections();
+  const index = collections.findIndex((row) => row.CollectionID === base.CollectionID);
+  const next: CollectionEntry = {
+    ...base,
+    EmployeeID: submission.employeeId,
+    EmployeeName: submission.employeeName,
+    DepositCash: depositCash,
+    DepositLIPA: depositLIPA,
+    ExpectedCollection: base.CashSales,
+    ActualCollection: calculateActualCollection(depositCash, depositLIPA),
+    Variance: calculateCollectionVariance(base.CashSales, depositCash, depositLIPA),
+    DepositInBank: depositInBank,
+    BankDepositDifference: calculateBankDepositDifference(depositCash, depositInBank),
+    DateOfDeposit: submission.dateOfDeposit || "",
+    EFDZReport: efdZReport,
+    SalesVsEFD: calculateSalesVsEfd(base.TotalSales, efdZReport),
+    Name: submission.name || submission.employeeName,
+    Signature: submission.signature,
+    Remarks: submission.remarks || "",
+    Status: "Submitted",
+    SubmittedAt: nowIso(),
+    UpdatedAt: nowIso(),
+    ApprovedBy: "",
+    ApprovedAt: ""
+  };
 
-  return { success: true, reportId, totalSales, cashSales, creditSalesAmount: creditSales, mismatchCount };
+  if (index >= 0) collections[index] = next;
+  else collections.push(next);
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, collections);
+  return { success: true, collection: next };
 }
 
-function filterByDateAndEmployee<T extends { Date: string; EmployeeID: string }>(
-  rows: T[],
-  startDate?: string,
-  endDate?: string,
-  employeeId?: string
-): T[] {
-  const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
-  const end = endDate ? new Date(`${endDate}T23:59:59`) : null;
+function updateMockCollectionByAdmin(data: ApiData, status?: CollectionEntry["Status"]): ApiResponse {
+  const collections = getCollections();
+  const index = collections.findIndex((row) =>
+    data.collectionId
+      ? row.CollectionID === String(data.collectionId)
+      : row.ShopID === String(data.shopId) && normalizeSheetDate(row.Date) === normalizeSheetDate(String(data.date || ""))
+  );
+  if (index === -1) return { success: false, error: "Collection row not found." };
+  const row = collections[index];
+  const next: CollectionEntry = {
+    ...row,
+    AdminNote: data.adminNote !== undefined ? String(data.adminNote) : row.AdminNote,
+    Status: status || row.Status,
+    ApprovedBy: status === "Approved" ? String(data.adminId || data.userId || "") : status === "Rejected" || status === "Reopened" ? "" : row.ApprovedBy,
+    ApprovedAt: status === "Approved" ? nowIso() : status === "Rejected" || status === "Reopened" ? "" : row.ApprovedAt,
+    UpdatedAt: nowIso()
+  };
+  collections[index] = next;
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, collections);
+  return { success: true, collection: next };
+}
 
-  return rows.filter((row) => {
-    const rowDate = new Date(`${String(row.Date).split("T")[0]}T12:00:00`);
-    if (start && rowDate < start) return false;
-    if (end && rowDate > end) return false;
-    if (employeeId && row.EmployeeID !== employeeId) return false;
-    return true;
+function getOpeningStock(shopId: string, date: string): OpeningStockEntry[] {
+  const shop = getShops().find((item) => item.ShopID === shopId);
+  const stocks = getStocks()
+    .filter((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) < normalizeSheetDate(date))
+    .sort((a, b) => `${normalizeSheetDate(b.Date)}${b.CreatedAt}`.localeCompare(`${normalizeSheetDate(a.Date)}${a.CreatedAt}`));
+
+  return getProducts()
+    .filter((product) => product.Active === "Yes")
+    .map((product) => {
+      const lastStock = stocks.find((stock) => stock.ProductID === product.ProductID);
+      return {
+        ShopID: shopId,
+        ShopName: shop?.ShopName || "",
+        ProductID: product.ProductID,
+        ProductName: product.ProductName,
+        Category: product.Category,
+        UOM: product.UOM,
+        CurrentOpeningStock: toNumber(lastStock?.ActualClosing),
+        LastUpdatedDate: lastStock?.Date || ""
+      };
+    });
+}
+
+function submitMockReport(submission: DailyReportSubmission, mode: "sales" | "stock" | "full"): ApiResponse {
+  const validationError = validateSubmission(submission, mode !== "stock", mode !== "sales");
+  if (validationError) return { success: false, error: validationError };
+
+  const reports = getReports();
+  const reportDate = normalizeSheetDate(submission.date);
+  const existingIndex = submission.reportId
+    ? reports.findIndex((report) => report.ReportID === submission.reportId)
+    : reports.findIndex((report) => report.ShopID === submission.shopId && normalizeSheetDate(report.Date) === reportDate);
+
+  const existingReport = existingIndex >= 0 ? reports[existingIndex] : undefined;
+  if (existingReport?.Status === "Approved") {
+    return { success: false, error: "Approved reports cannot be changed. Ask admin to reopen it first." };
+  }
+  if (submission.reportId && existingReport && existingReport.Status !== "Reopened" && mode === "full") {
+    return { success: false, error: "Only reopened reports can be corrected." };
+  }
+
+  const reportId = existingIndex >= 0 ? reports[existingIndex].ReportID : generateId("REP");
+  removeRowsForReport(reportId, mode);
+
+  const createdAt = nowIso();
+  const salesRows = getSales();
+  const stockRows = getStocks();
+
+  if (mode !== "stock") {
+    submission.salesEntries.forEach((sale) => {
+      const totalAmount = calculateSalesAmount(sale.quantity, sale.rate);
+      salesRows.push({
+        EntryID: generateId("SAL"),
+        ReportID: reportId,
+        ShopID: submission.shopId,
+        ShopName: submission.shopName,
+        Date: reportDate,
+        EmployeeID: submission.employeeId,
+        EmployeeName: submission.employeeName,
+        ProductID: sale.productId,
+        ProductName: sale.productName,
+        UOM: sale.uom,
+        Quantity: toNumber(sale.quantity),
+        Rate: toNumber(sale.rate),
+        SaleType: sale.saleType,
+        CashSales: sale.saleType === "Cash" ? totalAmount : 0,
+        CreditSales: sale.saleType === "Credit" ? totalAmount : 0,
+        EFDNumber: sale.efdNumber || "",
+        CustomerName: sale.saleType === "Credit" ? sale.customerName || "" : "",
+        TotalAmount: totalAmount,
+        CreatedAt: createdAt
+      });
+    });
+  }
+
+  if (mode !== "sales") {
+    const salesQuantityByProduct = getSalesQuantityByProduct(submission.shopId, reportDate);
+    submission.stockEntries.forEach((stock: StockSubmissionItem) => {
+      const opening = toNumber(stock.openingStock);
+      const receipt = toNumber(stock.receipt);
+      const sales = salesQuantityByProduct.get(stock.productId) ?? toNumber(stock.sales);
+      const expected = calculateExpectedClosing(opening, receipt, sales);
+      const actual = toNumber(stock.actualClosing);
+      stockRows.push({
+        EntryID: generateId("STK"),
+        ReportID: reportId,
+        ShopID: submission.shopId,
+        ShopName: submission.shopName,
+        Date: reportDate,
+        EmployeeID: submission.employeeId,
+        EmployeeName: submission.employeeName,
+        ProductID: stock.productId,
+        ProductName: stock.productName,
+        Category: stock.category,
+        UOM: stock.uom,
+        MTNNo: stock.mtnNo || "",
+        OpeningStock: opening,
+        Receipt: receipt,
+        Sales: sales,
+        ExpectedClosing: expected,
+        ActualClosing: actual,
+        Mismatch: calculateMismatch(actual, expected),
+        CreatedAt: createdAt
+      });
+    });
+  }
+
+  setStored<DailySalesEntry>(STORAGE_KEYS.sales, salesRows);
+  setStored<DailyStockEntry>(STORAGE_KEYS.stocks, stockRows);
+
+  if (mode === "sales") {
+    recalculateExistingStockSales(reportId, submission.shopId, reportDate);
+  }
+
+  const report: DailyReport = {
+    ReportID: reportId,
+    ShopID: submission.shopId,
+    ShopName: submission.shopName,
+    Date: reportDate,
+    EmployeeID: submission.employeeId,
+    EmployeeName: submission.employeeName,
+    SalesSubmitted: mode === "stock" ? existingReport?.SalesSubmitted || "No" : "Yes",
+    StockSubmitted: mode === "sales" ? existingReport?.StockSubmitted || "No" : "Yes",
+    Status: "Submitted",
+    SubmittedAt: createdAt,
+    ApprovedBy: "",
+    ApprovedAt: "",
+    TotalSales: 0,
+    CashSales: 0,
+    CreditSales: 0,
+    StockMismatch: 0
+  };
+
+  if (existingIndex >= 0) reports[existingIndex] = report;
+  else reports.push(report);
+  setStored<DailyReport>(STORAGE_KEYS.reports, reports);
+
+  upsertCollectionForShopDate(submission.shopId, reportDate, reportId, submission.employeeId, submission.employeeName);
+  const totals = reportTotals(reportId);
+  return {
+    success: true,
+    reportId,
+    totalSales: totals.TotalSales,
+    cashSales: totals.CashSales,
+    creditSalesAmount: totals.CreditSales,
+    mismatchCount: totals.StockMismatch
+  };
+}
+
+function getReportRows(startDate?: string, endDate?: string, shopId?: string, employeeId?: string) {
+  const summaries = getReports()
+    .filter((report) => isDateInRange(report.Date, startDate, endDate))
+    .filter((report) => !shopId || report.ShopID === shopId)
+    .filter((report) => !employeeId || report.EmployeeID === employeeId)
+    .map(enrichReport);
+  const reportIds = new Set(summaries.map((report) => report.ReportID));
+
+  return {
+    summaries,
+    sales: getSales().filter((row) => reportIds.has(row.ReportID)).map(withEmployeeName),
+    stocks: getStocks().filter((row) => reportIds.has(row.ReportID)).map(withEmployeeName),
+    creditSales: getCreditSalesRows().filter((row) => reportIds.has(row.ReportID))
+  };
+}
+
+function getCreditSalesRows(): CreditSalesEntry[] {
+  const statusByReport = new Map(getReports().map((report) => [report.ReportID, report.Status]));
+  return getSales()
+    .filter((sale) => sale.SaleType === "Credit")
+    .map((sale) => ({
+      EntryID: sale.EntryID,
+      ReportID: sale.ReportID,
+      ShopID: sale.ShopID,
+      ShopName: sale.ShopName,
+      Date: sale.Date,
+      EmployeeID: sale.EmployeeID,
+      EmployeeName: sale.EmployeeName || getEmployeeName(sale.EmployeeID),
+      CustomerName: sale.CustomerName,
+      ProductName: sale.ProductName,
+      Amount: sale.CreditSales,
+      EFDNumber: sale.EFDNumber,
+      Status: statusByReport.get(sale.ReportID) || "Submitted",
+      CreatedAt: sale.CreatedAt
+    }));
+}
+
+function getDashboard(data: ApiData): DashboardData {
+  const date = normalizeSheetDate(String(data.date || getLocalDateInputValue()));
+  const month = String(data.month || date.slice(0, 7) || getMonthInputValue());
+  const shopId = String(data.shopId || "");
+
+  const monthSales = filterShop(getSales(), shopId).filter((row) => isMonth(row.Date, month));
+  const monthStocks = filterShop(getStocks(), shopId).filter((row) => isMonth(row.Date, month));
+  const monthReports = filterShop(getReports(), shopId).filter((row) => isMonth(row.Date, month)).map(enrichReport);
+  const dateReports = monthReports.filter((row) => normalizeSheetDate(row.Date) === date);
+  const monthCollections = filterShop(getCollections(), shopId)
+    .filter((row) => row.Month === month)
+    .sort((a, b) => a.Date.localeCompare(b.Date));
+  const dateCollections = monthCollections.filter((row) => normalizeSheetDate(row.Date) === date);
+
+  const cashSales = monthSales.reduce((sum, row) => sum + toNumber(row.CashSales), 0);
+  const creditSales = monthSales.reduce((sum, row) => sum + toNumber(row.CreditSales), 0);
+  const totalSales = cashSales + creditSales;
+  const depositCash = monthCollections.reduce((sum, row) => sum + toNumber(row.DepositCash), 0);
+  const depositLIPA = monthCollections.reduce((sum, row) => sum + toNumber(row.DepositLIPA), 0);
+  const variance = monthCollections.reduce((sum, row) => sum + toNumber(row.Variance), 0);
+  const efdDifference = monthCollections.reduce((sum, row) => sum + toNumber(row.SalesVsEFD), 0);
+  const bankDepositDifference = monthCollections.reduce((sum, row) => sum + toNumber(row.BankDepositDifference), 0);
+  const mismatchRows = monthStocks.filter((row) => toNumber(row.Mismatch) !== 0);
+
+  const salesByDate = new Map<string, { cash: number; credit: number; total: number }>();
+  monthSales.forEach((sale) => {
+    const key = normalizeSheetDate(sale.Date);
+    const existing = salesByDate.get(key) || { cash: 0, credit: 0, total: 0 };
+    existing.cash += toNumber(sale.CashSales);
+    existing.credit += toNumber(sale.CreditSales);
+    existing.total += toNumber(sale.TotalAmount);
+    salesByDate.set(key, existing);
   });
+
+  const salesByShop = new Map<string, number>();
+  monthSales.forEach((sale) => salesByShop.set(sale.ShopName, (salesByShop.get(sale.ShopName) || 0) + toNumber(sale.TotalAmount)));
+
+  const salesByProduct = new Map<string, number>();
+  monthSales.forEach((sale) => salesByProduct.set(sale.ProductName, (salesByProduct.get(sale.ProductName) || 0) + toNumber(sale.TotalAmount)));
+
+  const mismatchByProduct = new Map<string, number>();
+  mismatchRows.forEach((stock) => mismatchByProduct.set(stock.ProductName, (mismatchByProduct.get(stock.ProductName) || 0) + Math.abs(toNumber(stock.Mismatch))));
+
+  return {
+    stats: {
+      totalSales,
+      cashSales,
+      creditSales,
+      depositCash,
+      depositLIPA,
+      variance,
+      efdDifference,
+      bankDepositDifference,
+      todayCashSales: dateCollections.reduce((sum, row) => sum + toNumber(row.CashSales), 0),
+      todayLIPA: dateCollections.reduce((sum, row) => sum + toNumber(row.DepositLIPA), 0),
+      todayBankDeposit: dateCollections.reduce((sum, row) => sum + toNumber(row.DepositInBank), 0),
+      todayVariance: dateCollections.reduce((sum, row) => sum + toNumber(row.Variance), 0),
+      pendingCollectionApprovals: monthCollections.filter((row) => row.Status === "Submitted" || row.Status === "Reopened").length,
+      collectionsWithVariance: monthCollections.filter((row) => toNumber(row.Variance) !== 0).length,
+      collectionsMissingEFD: monthCollections.filter((row) => toNumber(row.EFDZReport) === 0).length,
+      bankDepositMismatches: monthCollections.filter((row) => toNumber(row.BankDepositDifference) !== 0).length,
+      stockMismatch: mismatchRows.length,
+      reportsSubmitted: dateReports.length,
+      pendingApprovals: monthReports.filter((report) => report.Status === "Submitted" || report.Status === "Pending Approval").length
+    },
+    cashCreditSplit: [
+      { name: "Cash Sales", value: cashSales },
+      { name: "Credit Sales", value: creditSales }
+    ].filter((point) => point.value > 0),
+    dailySalesTrend: Array.from(salesByDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, value]) => ({ name: name.slice(5), ...value, value: value.total })),
+    shopSalesComparison: Array.from(salesByShop.entries()).map(([name, value]) => ({ name, value })),
+    topSellingProducts: Array.from(salesByProduct.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value })),
+    mismatchByProduct: Array.from(mismatchByProduct.entries()).map(([name, value]) => ({ name, value, mismatch: value })),
+    todaySubmissions: dateReports.map((report) => {
+      const totals = reportTotals(report.ReportID);
+      const collection = getCollections().find((row) => row.ShopID === report.ShopID && normalizeSheetDate(row.Date) === normalizeSheetDate(report.Date));
+      return {
+        ReportID: report.ReportID,
+        Shop: report.ShopName,
+        Employee: report.EmployeeName,
+        SalesTotal: totals.TotalSales,
+        StockStatus: totals.StockMismatch > 0 ? `Mismatch ${totals.StockMismatch}` : report.StockSubmitted === "Yes" ? "Matched" : "Not submitted",
+        CollectionStatus: collection?.Status || "Draft",
+        ApprovalStatus: report.Status
+      };
+    }),
+    collectionSummary: monthCollections,
+    stockMismatchRows: mismatchRows
+  };
 }
 
-async function callMockApi(action: string, data: Record<string, unknown>): Promise<ApiResponse> {
-  initMockDb();
-  await new Promise((resolve) => window.setTimeout(resolve, 250));
+function updateReportStatus(reportId: string, status: ReportStatus, adminId: string): ApiResponse {
+  const reports = getReports();
+  const index = reports.findIndex((report) => report.ReportID === reportId);
+  if (index === -1) return { success: false, error: "Report not found." };
+  reports[index] = {
+    ...reports[index],
+    Status: status,
+    ApprovedBy: status === "Approved" ? adminId : reports[index].ApprovedBy,
+    ApprovedAt: status === "Approved" ? nowIso() : reports[index].ApprovedAt
+  };
+  setStored<DailyReport>(STORAGE_KEYS.reports, reports);
+  return { success: true };
+}
+
+async function callMockApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
+  seedMockDb();
+  await new Promise((resolve) => window.setTimeout(resolve, 180));
 
   switch (action) {
     case "login": {
       const phone = String(data.phone || "").trim();
       const pin = String(data.pin || "").trim();
-      const employee = getEmployees().find((item) => item.Phone.trim() === phone && String(item.PIN || "").trim() === pin);
-      if (!employee) return { success: false, error: "Invalid Phone or PIN" };
-      if (employee.Status !== "Active") return { success: false, error: "Account inactive." };
-      return {
-        success: true,
-        user: {
-          employeeId: employee.EmployeeID,
-          name: employee.Name,
-          phone: employee.Phone,
-          role: employee.Role,
-          status: employee.Status
-        }
+      const user = getUsers().find((item) => item.Phone.trim() === phone && String(item.PIN || "").trim() === pin);
+      if (!user) return { success: false, error: "Invalid phone or PIN." };
+      if (user.Status !== "Active") return { success: false, error: "Account inactive." };
+      return { success: true, user: toSession(user) };
+    }
+
+    case "getShops":
+      return { success: true, shops: getShops() };
+
+    case "createShop": {
+      const shops = getShops();
+      const shopName = String(data.shopName || "").trim();
+      if (!shopName) return { success: false, error: "Shop name is required." };
+      if (shops.some((shop) => shop.ShopName.toLowerCase() === shopName.toLowerCase())) return { success: false, error: "Shop already exists." };
+      const shop: Shop = {
+        ShopID: generateId("SHOP"),
+        ShopName: shopName,
+        Location: String(data.location || "").trim(),
+        InchargeName: String(data.inchargeName || "").trim(),
+        InchargeContact: String(data.inchargeContact || "").trim(),
+        Status: data.status === "Inactive" ? "Inactive" : "Active",
+        CreatedAt: nowIso()
       };
+      shops.push(shop);
+      setStored<Shop>(STORAGE_KEYS.shops, shops);
+      return { success: true, shopId: shop.ShopID };
+    }
+
+    case "updateShop": {
+      const shops = getShops();
+      const index = shops.findIndex((shop) => shop.ShopID === String(data.shopId || data.ShopID || ""));
+      if (index === -1) return { success: false, error: "Shop not found." };
+      shops[index] = {
+        ...shops[index],
+        ShopName: data.shopName ? String(data.shopName).trim() : shops[index].ShopName,
+        Location: data.location !== undefined ? String(data.location).trim() : shops[index].Location,
+        InchargeName: data.inchargeName !== undefined ? String(data.inchargeName).trim() : shops[index].InchargeName,
+        InchargeContact: data.inchargeContact !== undefined ? String(data.inchargeContact).trim() : shops[index].InchargeContact,
+        Status: data.status === "Inactive" ? "Inactive" : "Active"
+      };
+      setStored<Shop>(STORAGE_KEYS.shops, shops);
+      return { success: true };
+    }
+
+    case "getUsers":
+    case "getEmployees":
+      return { success: true, users: getUsers().map(withoutPin), employees: getUsers().map(withoutPin) };
+
+    case "createUser":
+    case "createEmployee": {
+      const users = getUsers();
+      const phone = String(data.phone || "").trim();
+      if (!phone) return { success: false, error: "Phone is required." };
+      if (users.some((user) => user.Phone === phone)) return { success: false, error: "Phone number already exists." };
+      const userId = generateId("USR");
+      users.push({
+        UserID: userId,
+        EmployeeID: userId,
+        Name: String(data.name || "").trim(),
+        Phone: phone,
+        PIN: String(data.pin || "").trim(),
+        Role: data.role === "Admin" ? "Admin" : "Employee",
+        ShopID: String(data.shopId || data.ShopID || ""),
+        Status: data.status === "Inactive" ? "Inactive" : "Active",
+        CreatedAt: nowIso()
+      });
+      setStored<User>(STORAGE_KEYS.users, users);
+      return { success: true, userId, employeeId: userId };
+    }
+
+    case "updateUser":
+    case "updateEmployee": {
+      const users = getUsers();
+      const userId = String(data.userId || data.employeeId || data.UserID || "");
+      const index = users.findIndex((user) => user.UserID === userId);
+      if (index === -1) return { success: false, error: "User not found." };
+      users[index] = {
+        ...users[index],
+        Name: data.name ? String(data.name).trim() : users[index].Name,
+        Phone: data.phone ? String(data.phone).trim() : users[index].Phone,
+        PIN: data.pin ? String(data.pin).trim() : users[index].PIN,
+        Role: data.role === "Admin" || data.role === "Employee" ? data.role : users[index].Role,
+        ShopID: data.shopId !== undefined ? String(data.shopId) : users[index].ShopID,
+        Status: data.status === "Inactive" ? "Inactive" : "Active"
+      };
+      setStored<User>(STORAGE_KEYS.users, users);
+      return { success: true };
     }
 
     case "getProducts":
       return { success: true, products: getProducts() };
 
-    case "getEmployees":
-      return {
-        success: true,
-        employees: getEmployees().map((employee) => {
-          const safeEmployee = { ...employee };
-          delete safeEmployee.PIN;
-          return safeEmployee;
-        })
-      };
-
-    case "createEmployee": {
-      const employees = getEmployees();
-      const phone = String(data.phone || "").trim();
-      if (employees.some((employee) => employee.Phone === phone)) return { success: false, error: "Phone number already exists" };
-      const employeeId = `EMP${employees.length + 101}`;
-      employees.push({
-        EmployeeID: employeeId,
-        Name: String(data.name || "").trim(),
-        Phone: phone,
-        PIN: String(data.pin || "").trim(),
-        Role: data.role === "Admin" ? "Admin" : "Employee",
-        Status: data.status === "Inactive" ? "Inactive" : "Active",
-        CreatedAt: new Date().toISOString()
-      });
-      setStored<Employee>(STORAGE_KEYS.employees, employees);
-      return { success: true, employeeId };
-    }
-
-    case "updateEmployee": {
-      const employees = getEmployees();
-      const employeeId = String(data.employeeId || "");
-      const index = employees.findIndex((employee) => employee.EmployeeID === employeeId);
-      if (index === -1) return { success: false, error: "Employee not found" };
-      employees[index] = {
-        ...employees[index],
-        Name: data.name ? String(data.name).trim() : employees[index].Name,
-        Phone: data.phone ? String(data.phone).trim() : employees[index].Phone,
-        PIN: data.pin ? String(data.pin).trim() : employees[index].PIN,
-        Role: data.role === "Admin" || data.role === "Employee" ? data.role : employees[index].Role,
-        Status: data.status === "Active" || data.status === "Inactive" ? data.status : employees[index].Status
-      };
-      setStored<Employee>(STORAGE_KEYS.employees, employees);
-      return { success: true };
-    }
-
     case "createProduct": {
       const products = getProducts();
-      const productId = `PROD${products.length + 101}`;
-      const productName = String(data.productName || "").trim();
+      const productId = generateId("PROD");
       products.push({
         ProductID: productId,
-        ProductName: productName,
-        Category: String(data.category || "General").trim(),
+        ProductName: String(data.productName || "").trim(),
+        Category: String(data.category || "Chicken").trim(),
         UOM: String(data.uom || "").trim(),
-        DefaultRate: Number(data.defaultRate || 0),
-        Active: data.active === "No" ? "No" : "Yes"
+        DefaultRate: toNumber(data.defaultRate),
+        Active: data.active === "No" ? "No" : "Yes",
+        CreatedAt: nowIso()
       });
       setStored<Product>(STORAGE_KEYS.products, products);
-      const openingRows = parseStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, []);
-      openingRows.push({ ProductID: productId, ProductName: productName, CurrentOpeningStock: 0, LastUpdatedDate: new Date().toISOString() });
-      setStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, openingRows);
       return { success: true, productId };
     }
 
     case "updateProduct": {
       const products = getProducts();
-      const productId = String(data.productId || "");
+      const productId = String(data.productId || data.ProductID || "");
       const index = products.findIndex((product) => product.ProductID === productId);
-      if (index === -1) return { success: false, error: "Product not found" };
+      if (index === -1) return { success: false, error: "Product not found." };
       products[index] = {
         ...products[index],
         ProductName: data.productName ? String(data.productName).trim() : products[index].ProductName,
         Category: data.category ? String(data.category).trim() : products[index].Category,
         UOM: data.uom ? String(data.uom).trim() : products[index].UOM,
-        DefaultRate: data.defaultRate !== undefined ? Number(data.defaultRate) : products[index].DefaultRate,
-        Active: data.active === "Yes" || data.active === "No" ? data.active : products[index].Active
+        DefaultRate: data.defaultRate !== undefined ? toNumber(data.defaultRate) : products[index].DefaultRate,
+        Active: data.active === "No" ? "No" : "Yes"
       };
       setStored<Product>(STORAGE_KEYS.products, products);
       return { success: true };
     }
 
-    case "getTodayOpeningStock":
-      return { success: true, openingStock: parseStored<OpeningStockEntry>(STORAGE_KEYS.openingStock, []) };
+    case "getOpeningStock":
+    case "getTodayOpeningStock": {
+      const shopId = String(data.shopId || getUsers().find((user) => user.UserID === String(data.employeeId || ""))?.ShopID || getShops()[0]?.ShopID || "");
+      const date = String(data.date || getLocalDateInputValue());
+      return { success: true, openingStock: getOpeningStock(shopId, date) };
+    }
 
+    case "getTodayReport": {
+      const shopId = String(data.shopId || "");
+      const date = normalizeSheetDate(String(data.date || getLocalDateInputValue()));
+      const report = getReports().find((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === date);
+      return { success: true, report: report ? enrichReport(report) : undefined };
+    }
+
+    case "submitDailySales":
+      return submitMockReport(data as unknown as DailyReportSubmission, "sales");
+
+    case "submitDailyStock":
+      return submitMockReport(data as unknown as DailyReportSubmission, "stock");
+
+    case "submitFullDailyReport":
     case "submitDailyReport":
-      return submitMockDailyReport(data as unknown as DailyReportSubmission);
+      return submitMockReport(data as unknown as DailyReportSubmission, "full");
 
+    case "getMyReports":
+    case "getEmployeeReports": {
+      const employeeId = String(data.employeeId || "");
+      const reports = getReports()
+        .filter((report) => report.EmployeeID === employeeId)
+        .map(enrichReport)
+        .sort((a, b) => b.SubmittedAt.localeCompare(a.SubmittedAt));
+      return { success: true, reports };
+    }
+
+    case "getDashboard":
     case "getAdminDashboard": {
-      const targetDate = String(data.date || getLocalDateInputValue());
-      const summaries = filterByDateAndEmployee(parseStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []), targetDate, targetDate);
-      const sales = filterByDateAndEmployee(parseStored<DailySalesEntry>(STORAGE_KEYS.dailySales, []), targetDate, targetDate);
-      const totalSales = summaries.reduce((sum, item) => sum + Number(item.TotalSales || 0), 0);
-      const cashSales = summaries.reduce((sum, item) => sum + Number(item.CashSales || 0), 0);
-      const creditSales = summaries.reduce((sum, item) => sum + Number(item.CreditSales || 0), 0);
-      const mismatchCount = summaries.reduce((sum, item) => sum + Number(item.StockMismatch || 0), 0);
-      const productQuantities = new Map<string, number>();
-      sales.forEach((sale) => productQuantities.set(sale.ProductName, (productQuantities.get(sale.ProductName) || 0) + Number(sale.Quantity || 0)));
-      const topProduct = Array.from(productQuantities.entries()).sort((a, b) => b[1] - a[1])[0];
-
-      return {
-        success: true,
-        stats: {
-          todayTotalSales: totalSales,
-          todayCashSales: cashSales,
-          todayCreditSales: creditSales,
-          submittedReportsCount: summaries.length,
-          stockMismatchCount: mismatchCount,
-          topSellingProduct: topProduct ? `${topProduct[0]} (${topProduct[1]})` : "N/A"
-        },
-        recentSummaries: summaries
-      };
+      const dashboard = getDashboard(data);
+      return { success: true, dashboard, stats: dashboard.stats, recentSummaries: getReports().map(enrichReport) };
     }
 
     case "getReportsByDate": {
-      const startDate = data.startDate ? String(data.startDate) : undefined;
-      const endDate = data.endDate ? String(data.endDate) : undefined;
-      const employeeId = data.employeeId ? String(data.employeeId) : undefined;
-      return {
-        success: true,
-        summaries: filterByDateAndEmployee(parseStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []), startDate, endDate, employeeId),
-        sales: filterByDateAndEmployee(parseStored<DailySalesEntry>(STORAGE_KEYS.dailySales, []), startDate, endDate, employeeId),
-        stocks: filterByDateAndEmployee(parseStored<DailyStockEntry>(STORAGE_KEYS.dailyStock, []), startDate, endDate, employeeId),
-        creditSales: filterByDateAndEmployee(parseStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, []), startDate, endDate, employeeId)
-      };
+      const bundle = getReportRows(
+        data.startDate ? String(data.startDate) : undefined,
+        data.endDate ? String(data.endDate) : undefined,
+        data.shopId ? String(data.shopId) : undefined,
+        data.employeeId ? String(data.employeeId) : undefined
+      );
+      return { success: true, ...bundle };
     }
 
-    case "getEmployeeReports": {
-      const employeeId = String(data.employeeId || "");
-      return {
-        success: true,
-        reports: parseStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []).filter((summary) => summary.EmployeeID === employeeId)
-      };
+    case "getDailySalesReport": {
+      const rows = getSales()
+        .filter((row) => isDateInRange(row.Date, data.startDate ? String(data.startDate) : undefined, data.endDate ? String(data.endDate) : undefined))
+        .filter((row) => !data.shopId || row.ShopID === String(data.shopId))
+        .map(withEmployeeName);
+      return { success: true, sales: rows };
     }
+
+    case "getDailyStockReport": {
+      const rows = getStocks()
+        .filter((row) => isDateInRange(row.Date, data.startDate ? String(data.startDate) : undefined, data.endDate ? String(data.endDate) : undefined))
+        .filter((row) => !data.shopId || row.ShopID === String(data.shopId))
+        .map(withEmployeeName);
+      return { success: true, stocks: rows };
+    }
+
+    case "getTodayCollection": {
+      const shopId = String(data.shopId || "");
+      const date = normalizeSheetDate(String(data.date || getLocalDateInputValue()));
+      const existing = getCollections().find((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) === date);
+      return { success: true, collection: existing || buildBaseCollection(shopId, date, data.reportId ? String(data.reportId) : undefined) };
+    }
+
+    case "submitDailyCollection":
+      return submitMockCollection(data as unknown as CollectionSubmission);
+
+    case "getCollections":
+      return { success: true, collections: filterCollections(data) };
+
+    case "getMonthlyCollectionReport":
+      return { success: true, collections: filterCollections({ ...data, month: String(data.month || getMonthInputValue()) }) };
+
+    case "updateCollectionByAdmin":
+    case "updateCollectionDeposit":
+      return updateMockCollectionByAdmin(data);
+
+    case "approveCollection":
+      return updateMockCollectionByAdmin(data, "Approved");
+
+    case "rejectCollection":
+      return updateMockCollectionByAdmin({ ...data, adminNote: String(data.reason || data.adminNote || "") }, "Rejected");
+
+    case "reopenCollection":
+      return updateMockCollectionByAdmin(data, "Reopened");
 
     case "approveReport":
+      return updateReportStatus(String(data.reportId || ""), "Approved", String(data.adminId || data.userId || ""));
+
     case "rejectReport":
-    case "reopenReport": {
-      const reportId = String(data.reportId || "");
-      const status: DailySummaryEntry["Status"] =
-        action === "approveReport" ? "Approved" : action === "rejectReport" ? "Rejected" : "Reopened";
-      const summaries = parseStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, []);
-      const index = summaries.findIndex((summary) => summary.ReportID === reportId);
-      if (index === -1) return { success: false, error: "Report summary not found" };
-      summaries[index] = { ...summaries[index], Status: status };
-      setStored<DailySummaryEntry>(STORAGE_KEYS.dailySummary, summaries);
-      const credits = parseStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, []).map((credit) =>
-        credit.ReportID === reportId ? { ...credit, Status: status } : credit
-      );
-      setStored<CreditSalesEntry>(STORAGE_KEYS.creditSales, credits);
-      return { success: true };
+      return updateReportStatus(String(data.reportId || ""), "Rejected", String(data.adminId || data.userId || ""));
+
+    case "reopenReport":
+      return updateReportStatus(String(data.reportId || ""), "Reopened", String(data.adminId || data.userId || ""));
+
+    case "getStockMismatchReport": {
+      const rows = getStocks()
+        .filter((row) => toNumber(row.Mismatch) !== 0)
+        .filter((row) => isDateInRange(row.Date, data.startDate ? String(data.startDate) : undefined, data.endDate ? String(data.endDate) : undefined))
+        .filter((row) => !data.shopId || row.ShopID === String(data.shopId))
+        .map(withEmployeeName);
+      return { success: true, stocks: rows };
+    }
+
+    case "getCreditSalesReport": {
+      const rows = getCreditSalesRows()
+        .filter((row) => isDateInRange(row.Date, data.startDate ? String(data.startDate) : undefined, data.endDate ? String(data.endDate) : undefined))
+        .filter((row) => !data.shopId || row.ShopID === String(data.shopId));
+      return { success: true, creditSales: rows };
+    }
+
+    case "getLiveWeight":
+      return { success: true, liveWeight: parseStored<unknown>(STORAGE_KEYS.liveWeight, []) };
+
+    case "submitLiveWeight": {
+      const liveWeightList = parseStored<LiveWeightEntry>(STORAGE_KEYS.liveWeight, []);
+      const shop = getShops().find((s) => s.ShopID === String(data.shopId));
+      const entry: LiveWeightEntry = {
+        LiveWeightID: generateId("LW"),
+        ShopID: String(data.shopId),
+        ShopName: shop?.ShopName || "",
+        Date: String(data.date),
+        Crates: toNumber(data.crates),
+        TotalBirds: toNumber(data.totalBirds),
+        NetLiveWeightKG: toNumber(data.netLiveWeightKG),
+        AvgLiveWeightKG: toNumber(data.avgLiveWeightKG),
+        DOA: toNumber(data.doa),
+        InjuredBirds: toNumber(data.injuredBirds),
+        Shortage: toNumber(data.shortage),
+        NetAcceptedBirds: toNumber(data.netAcceptedBirds),
+        CreatedAt: nowIso()
+      };
+      liveWeightList.push(entry);
+      setStored<LiveWeightEntry>(STORAGE_KEYS.liveWeight, liveWeightList);
+      return { success: true, reportId: entry.LiveWeightID };
     }
 
     default:
-      return { success: false, error: "Action not supported in Mock API" };
+      return { success: false, error: `Action not supported in Mock API: ${action}` };
   }
 }
 
-async function callApi(action: string, data: Record<string, unknown> = {}): Promise<ApiResponse> {
+async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
   const url = getApiUrl();
 
   if (isMockMode()) {
     return callMockApi(action, data);
   }
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
 
   try {
     const response = await fetch(url, {
@@ -511,7 +1286,8 @@ async function callApi(action: string, data: Record<string, unknown> = {}): Prom
       headers: {
         "Content-Type": "text/plain;charset=utf-8"
       },
-      body: JSON.stringify({ action, data })
+      body: JSON.stringify({ action, data }),
+      signal: controller.signal
     });
 
     if (!response.ok) {
@@ -520,31 +1296,97 @@ async function callApi(action: string, data: Record<string, unknown> = {}): Prom
 
     return (await response.json()) as ApiResponse;
   } catch (error) {
-    console.error(`[API Client] Error on action ${action}, falling back to Mock API:`, error);
+    console.error(`[API Client] ${action} failed; using mock fallback:`, error);
     return callMockApi(action, data);
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
 export const appsScriptClient = {
   login: (phone: string, pin: string) => callApi("login", { phone, pin }),
+  getShops: () => callApi("getShops"),
+  createShop: (shopData: { shopName: string; location: string; inchargeName: string; inchargeContact: string; status: string }) =>
+    callApi("createShop", shopData),
+  updateShop: (shopData: { shopId: string; shopName?: string; location?: string; inchargeName?: string; inchargeContact?: string; status?: string }) =>
+    callApi("updateShop", shopData),
+  getUsers: () => callApi("getUsers"),
+  createUser: (userData: { name: string; phone: string; pin: string; role: string; shopId: string; status: string }) =>
+    callApi("createUser", userData),
+  updateUser: (userData: { userId: string; name?: string; phone?: string; pin?: string; role?: string; shopId?: string; status?: string }) =>
+    callApi("updateUser", userData),
+  getEmployees: () => callApi("getUsers"),
+  createEmployee: (userData: { name: string; phone: string; pin: string; role: string; shopId?: string; status: string }) =>
+    callApi("createUser", { ...userData, shopId: userData.shopId || "" }),
+  updateEmployee: (userData: { employeeId: string; name?: string; phone?: string; pin?: string; role?: string; shopId?: string; status?: string }) =>
+    callApi("updateUser", { ...userData, userId: userData.employeeId }),
   getProducts: () => callApi("getProducts"),
-  getEmployees: () => callApi("getEmployees"),
-  createEmployee: (employeeData: { name: string; phone: string; pin: string; role: string; status: string }) =>
-    callApi("createEmployee", employeeData),
-  updateEmployee: (employeeData: { employeeId: string; name?: string; phone?: string; pin?: string; role?: string; status?: string }) =>
-    callApi("updateEmployee", employeeData),
   createProduct: (productData: { productName: string; category: string; uom: string; defaultRate: number; active: string }) =>
     callApi("createProduct", productData),
   updateProduct: (productData: { productId: string; productName?: string; category?: string; uom?: string; defaultRate?: number; active?: string }) =>
     callApi("updateProduct", productData),
-  getTodayOpeningStock: () => callApi("getTodayOpeningStock"),
-  submitDailyReport: (submission: DailyReportSubmission) =>
-    callApi("submitDailyReport", submission as unknown as Record<string, unknown>),
-  getAdminDashboard: (date?: string) => callApi("getAdminDashboard", { date }),
-  getReportsByDate: (startDate?: string, endDate?: string, employeeId?: string) =>
-    callApi("getReportsByDate", { startDate, endDate, employeeId }),
-  getEmployeeReports: (employeeId: string) => callApi("getEmployeeReports", { employeeId }),
+  getTodayReport: (employeeId: string, shopId: string, date: string) => callApi("getTodayReport", { employeeId, shopId, date }),
+  getOpeningStock: (shopId: string, date: string, employeeId?: string) => callApi("getOpeningStock", { shopId, date, employeeId }),
+  getTodayOpeningStock: (shopId?: string, date?: string) => callApi("getOpeningStock", { shopId, date }),
+  submitDailySales: (submission: DailyReportSubmission) => callApi("submitDailySales", submission as unknown as ApiData),
+  submitDailyStock: (submission: DailyReportSubmission) => callApi("submitDailyStock", submission as unknown as ApiData),
+  submitFullDailyReport: (submission: DailyReportSubmission) => callApi("submitFullDailyReport", submission as unknown as ApiData),
+  submitDailyReport: (submission: DailyReportSubmission) => callApi("submitFullDailyReport", submission as unknown as ApiData),
+  getMyReports: (employeeId: string) => callApi("getMyReports", { employeeId }),
+  getEmployeeReports: (employeeId: string) => callApi("getMyReports", { employeeId }),
+  getDashboard: (filters: { shopId?: string; date?: string; month?: string }) => callApi("getDashboard", filters),
+  getAdminDashboard: (date?: string, shopId?: string, month?: string) => callApi("getDashboard", { date, shopId, month }),
+  getDailySalesReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getDailySalesReport", filters),
+  getDailyStockReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getDailyStockReport", filters),
+  getReportsByDate: (startDate?: string, endDate?: string, employeeId?: string, shopId?: string) =>
+    callApi("getReportsByDate", { startDate, endDate, employeeId, shopId }),
+  getTodayCollection: (filters: { shopId: string; date: string; reportId?: string }) => callApi("getTodayCollection", filters),
+  submitDailyCollection: (submission: CollectionSubmission) => callApi("submitDailyCollection", submission as unknown as ApiData),
+  getCollections: (filters: { shopId?: string; startDate?: string; endDate?: string; month?: string; status?: string; search?: string }) =>
+    callApi("getCollections", filters),
+  getMonthlyCollectionReport: (filters: { shopId?: string; month: string }) => callApi("getMonthlyCollectionReport", filters),
+  updateCollectionByAdmin: (payload: {
+    collectionId: string;
+    depositCash?: number;
+    depositLIPA?: number;
+    depositInBank?: number;
+    dateOfDeposit?: string;
+    efdZReport?: number;
+    name?: string;
+    signature?: string;
+    remarks?: string;
+    adminNote?: string;
+  }) => callApi("updateCollectionByAdmin", payload),
+  updateCollectionDeposit: (payload: {
+    collectionId: string;
+    depositCash?: number;
+    depositLIPA?: number;
+    depositInBank?: number;
+    dateOfDeposit?: string;
+    efdZReport?: number;
+    name?: string;
+    signature?: string;
+  }) => callApi("updateCollectionDeposit", payload),
+  approveCollection: (collectionId: string, adminId: string, adminNote?: string) => callApi("approveCollection", { collectionId, adminId, adminNote }),
+  rejectCollection: (collectionId: string, adminId: string, reason: string) => callApi("rejectCollection", { collectionId, adminId, reason }),
+  reopenCollection: (collectionId: string, adminId: string, adminNote?: string) => callApi("reopenCollection", { collectionId, adminId, adminNote }),
   approveReport: (reportId: string, adminId: string) => callApi("approveReport", { reportId, adminId }),
   rejectReport: (reportId: string, adminId: string) => callApi("rejectReport", { reportId, adminId }),
-  reopenReport: (reportId: string, adminId: string) => callApi("reopenReport", { reportId, adminId })
+  reopenReport: (reportId: string, adminId: string) => callApi("reopenReport", { reportId, adminId }),
+  getStockMismatchReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getStockMismatchReport", filters),
+  getCreditSalesReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getCreditSalesReport", filters),
+  getLiveWeight: () => callApi("getLiveWeight"),
+  submitLiveWeight: (payload: {
+    shopId: string;
+    date: string;
+    employeeId: string;
+    crates: number;
+    totalBirds: number;
+    netLiveWeightKG: number;
+    avgLiveWeightKG: number;
+    doa: number;
+    injuredBirds: number;
+    shortage: number;
+    netAcceptedBirds: number;
+  }) => callApi("submitLiveWeight", payload)
 };

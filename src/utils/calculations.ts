@@ -1,43 +1,54 @@
-/**
- * Daily Sales and Stock System Calculation Utilities
- */
+export function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
-/**
- * Calculates total sales amount: Quantity * Rate
- */
+export function roundAmount(value: number): number {
+  return Number(toNumber(value).toFixed(2));
+}
+
 export function calculateSalesAmount(quantity: number, rate: number): number {
-  if (isNaN(quantity) || isNaN(rate)) return 0;
-  return Number((quantity * rate).toFixed(2));
+  return roundAmount(toNumber(quantity) * toNumber(rate));
 }
 
-/**
- * Calculates Expected Closing Stock: OpeningStock + Receipt - Sales
- */
 export function calculateExpectedClosing(opening: number, receipt: number, sales: number): number {
-  const o = isNaN(opening) ? 0 : Number(opening);
-  const r = isNaN(receipt) ? 0 : Number(receipt);
-  const s = isNaN(sales) ? 0 : Number(sales);
-  return Number((o + r - s).toFixed(2));
+  return roundAmount(toNumber(opening) + toNumber(receipt) - toNumber(sales));
 }
 
-/**
- * Calculates Stock Mismatch: ActualClosing - ExpectedClosing
- * Note: If mismatch is 0, everything is aligned.
- * Positive = surplus stock, Negative = deficit (mismatch)
- */
 export function calculateMismatch(actual: number, expected: number): number {
-  const a = isNaN(actual) ? 0 : Number(actual);
-  const e = isNaN(expected) ? 0 : Number(expected);
-  return Number((a - e).toFixed(2));
+  return roundAmount(toNumber(actual) - toNumber(expected));
 }
 
-/**
- * Formats a number as INR currency.
- */
+export function calculateVariance(totalSales: number, depositCash: number, depositLipa: number): number {
+  return roundAmount(toNumber(totalSales) - toNumber(depositCash) - toNumber(depositLipa));
+}
+
+export function calculateActualCollection(depositCash: number, depositLipa: number): number {
+  return roundAmount(toNumber(depositCash) + toNumber(depositLipa));
+}
+
+export function calculateCollectionVariance(cashSales: number, depositCash: number, depositLipa: number): number {
+  return roundAmount(toNumber(cashSales) - calculateActualCollection(depositCash, depositLipa));
+}
+
+export function calculateBankDepositDifference(depositCash: number, depositInBank: number): number {
+  return roundAmount(toNumber(depositCash) - toNumber(depositInBank));
+}
+
+export function calculateSalesVsEfd(totalSales: number, efdZReport: number): number {
+  return roundAmount(toNumber(totalSales) - toNumber(efdZReport));
+}
+
 export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-IN", {
+  return new Intl.NumberFormat("en-TZ", {
     style: "currency",
-    currency: "INR",
+    currency: "TZS",
+    maximumFractionDigits: 0
+  }).format(toNumber(amount));
+}
+
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-TZ", {
     maximumFractionDigits: 2
-  }).format(amount);
+  }).format(toNumber(value));
 }

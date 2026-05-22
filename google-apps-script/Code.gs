@@ -1,38 +1,40 @@
 /**
- * Daily Sales and Daily Stock Reporting Backend
- * Google Apps Script Web App API
- * Master Sheet Schema: Employees, Products, DailySales, DailyStock, DailySummary, CreditSales, OpeningStock, Logs
+ * OptiFirst TZ / Better Bird POS Reporting API
+ * Google Sheets database + Google Apps Script Web App backend.
  */
 
-// Sheets configuration and column mappings
 const SHEETS = {
-  Employees: {
-    name: "Employees",
-    headers: ["EmployeeID", "Name", "Phone", "PIN", "Role", "Status", "CreatedAt"]
+  Users: {
+    name: "Users",
+    headers: ["UserID", "Name", "Phone", "PIN", "Role", "ShopID", "Status", "CreatedAt"]
+  },
+  Shops: {
+    name: "Shops",
+    headers: ["ShopID", "ShopName", "Location", "InchargeName", "InchargeContact", "Status", "CreatedAt"]
   },
   Products: {
     name: "Products",
-    headers: ["ProductID", "ProductName", "Category", "UOM", "DefaultRate", "Active"]
+    headers: ["ProductID", "ProductName", "Category", "UOM", "DefaultRate", "Active", "CreatedAt"]
   },
-  DailySales: {
-    name: "DailySales",
-    headers: ["ReportID", "Date", "EmployeeID", "EmployeeName", "ProductID", "ProductName", "UOM", "Quantity", "Rate", "SaleType", "CashSales", "CreditSales", "EFDNumber", "CustomerName", "TotalAmount", "CreatedAt"]
+  DailyReports: {
+    name: "DailyReports",
+    headers: ["ReportID", "ShopID", "ShopName", "Date", "EmployeeID", "EmployeeName", "SalesSubmitted", "StockSubmitted", "Status", "SubmittedAt", "ApprovedBy", "ApprovedAt"]
   },
-  DailyStock: {
-    name: "DailyStock",
-    headers: ["ReportID", "Date", "EmployeeID", "EmployeeName", "ProductID", "ProductName", "Category", "UOM", "OpeningStock", "Receipt", "Sales", "ExpectedClosing", "ActualClosing", "Mismatch", "CreatedAt"]
+  DailySalesEntries: {
+    name: "DailySalesEntries",
+    headers: ["EntryID", "ReportID", "ShopID", "ShopName", "Date", "EmployeeID", "ProductID", "ProductName", "UOM", "Quantity", "Rate", "SaleType", "CashSales", "CreditSales", "EFDNumber", "CustomerName", "TotalAmount", "CreatedAt"]
   },
-  DailySummary: {
-    name: "DailySummary",
-    headers: ["ReportID", "Date", "EmployeeID", "EmployeeName", "TotalSales", "CashSales", "CreditSales", "TotalStockSales", "StockMismatch", "Status", "SubmittedAt"]
+  DailyStockEntries: {
+    name: "DailyStockEntries",
+    headers: ["EntryID", "ReportID", "ShopID", "ShopName", "Date", "EmployeeID", "ProductID", "ProductName", "Category", "UOM", "MTNNo", "OpeningStock", "Receipt", "Sales", "ExpectedClosing", "ActualClosing", "Mismatch", "CreatedAt"]
   },
-  CreditSales: {
-    name: "CreditSales",
-    headers: ["ReportID", "Date", "EmployeeID", "EmployeeName", "CustomerName", "ProductName", "Amount", "EFDNumber", "Status", "CreatedAt"]
+  Collections: {
+    name: "Collections",
+    headers: ["CollectionID", "ReportID", "ShopID", "ShopName", "Date", "Month", "Day", "EmployeeID", "EmployeeName", "CashSales", "CreditSales", "TotalSales", "DepositCash", "DepositLIPA", "ExpectedCollection", "ActualCollection", "Variance", "DepositInBank", "BankDepositDifference", "DateOfDeposit", "EFDZReport", "SalesVsEFD", "Name", "Signature", "Remarks", "Status", "AdminNote", "SubmittedAt", "UpdatedAt", "ApprovedBy", "ApprovedAt"]
   },
-  OpeningStock: {
-    name: "OpeningStock",
-    headers: ["ProductID", "ProductName", "CurrentOpeningStock", "LastUpdatedDate"]
+  LiveWeight: {
+    name: "LiveWeight",
+    headers: ["LiveWeightID", "ShopID", "Date", "Crates", "TotalBirds", "NetLiveWeightKG", "AvgLiveWeightKG", "DOA", "InjuredBirds", "Shortage", "NetAcceptedBirds", "CreatedAt"]
   },
   Logs: {
     name: "Logs",
@@ -40,107 +42,74 @@ const SHEETS = {
   }
 };
 
-/**
- * Automatically creates all required tabs and adds headers.
- * Adds sample products, sample admin, and sample employee.
- */
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // 1. Create Sheets and Headers
-  for (let key in SHEETS) {
-    let sheetConfig = SHEETS[key];
-    let sheet = ss.getSheetByName(sheetConfig.name);
-    if (!sheet) {
-      sheet = ss.insertSheet(sheetConfig.name);
-    }
-    // Set headers if sheet is empty or check headers
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(sheetConfig.headers);
-      sheet.getRange(1, 1, 1, sheetConfig.headers.length).setFontWeight("bold").setBackground("#f3f4f6");
-    }
-  }
-  
-  // 2. Add Sample Employees if empty
-  const empSheet = ss.getSheetByName(SHEETS.Employees.name);
-  if (empSheet.getLastRow() <= 1) {
-    const sampleEmployees = [
-      ["EMP001", "Admin User", "+1234567890", "1234", "Admin", "Active", new Date().toISOString()],
-      ["EMP002", "Sales Employee", "+1234567891", "5678", "Employee", "Active", new Date().toISOString()]
-    ];
-    sampleEmployees.forEach(row => empSheet.appendRow(row));
-  }
-  
-  // 3. Add Sample Products if empty
-  const prodSheet = ss.getSheetByName(SHEETS.Products.name);
-  if (prodSheet.getLastRow() <= 1) {
-    const sampleProducts = [
-      ["PROD001", "Apple", "Fruit", "KG", 150, "Yes"],
-      ["PROD002", "Banana", "Fruit", "Dozen", 60, "Yes"],
-      ["PROD003", "Milk", "Dairy", "Litre", 50, "Yes"],
-      ["PROD004", "Bread", "Bakery", "Packet", 40, "Yes"],
-      ["PROD005", "Eggs", "Bakery", "Box", 120, "Yes"],
-      ["PROD006", "Rice", "Grocery", "KG", 80, "Yes"]
-    ];
-    sampleProducts.forEach(row => prodSheet.appendRow(row));
-  }
+  Object.keys(SHEETS).forEach(function (key) {
+    const config = SHEETS[key];
+    let sheet = ss.getSheetByName(config.name);
+    if (!sheet) sheet = ss.insertSheet(config.name);
+    ensureHeaders(sheet, config.headers);
+  });
 
-  // 4. Populate OpeningStock if empty
-  const stockSheet = ss.getSheetByName(SHEETS.OpeningStock.name);
-  if (stockSheet.getLastRow() <= 1) {
-    const defaultStocks = [
-      ["PROD001", "Apple", 100, new Date().toISOString()],
-      ["PROD002", "Banana", 100, new Date().toISOString()],
-      ["PROD003", "Milk", 150, new Date().toISOString()],
-      ["PROD004", "Bread", 75, new Date().toISOString()],
-      ["PROD005", "Eggs", 50, new Date().toISOString()],
-      ["PROD006", "Rice", 200, new Date().toISOString()]
-    ];
-    defaultStocks.forEach(row => stockSheet.appendRow(row));
-  }
-  
-  logAction("SYSTEM", "SETUP", "Database initialized and seeded successfully");
-  return "Setup completed successfully!";
+  seedShops();
+  seedUsers();
+  seedProducts();
+  logAction("SYSTEM", "SETUP", "Database initialized with normalized tabs.");
+  return "Setup completed. Tabs, headers, shops, users, and products are ready.";
 }
 
-/**
- * Handle API actions using JSON payload
- */
-function doPost(e) {
-  // Handle CORS preflight
-  const output = ContentService.createTextOutput();
-  output.setMimeType(ContentService.MimeType.JSON);
-  
-  let lock = LockService.getScriptLock();
-  try {
-    // Acquire lock for up to 30 seconds to prevent write conflicts
-    lock.waitLock(30000);
-    
-    if (!e || !e.postData || !e.postData.contents) {
-      return jsonResponse({ success: false, error: "No post data found" });
+function doGet(e) {
+  const action = e && e.parameter ? e.parameter.action : "";
+  if (action === "setup") {
+    try {
+      return jsonResponse({ success: true, message: setupSheets() });
+    } catch (err) {
+      return jsonResponse({ success: false, error: String(err) });
     }
-    
-    const requestData = JSON.parse(e.postData.contents);
-    const action = requestData.action;
-    const data = requestData.data || {};
-    
+  }
+  return jsonResponse({ success: true, message: "OptiFirst POS API is running." });
+}
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    if (!e || !e.postData || !e.postData.contents) {
+      return jsonResponse({ success: false, error: "No JSON post data found." });
+    }
+
+    const request = JSON.parse(e.postData.contents);
+    const action = request.action;
+    const data = request.data || {};
     let result;
-    
+
     switch (action) {
       case "login":
-        result = handleLogin(data.phone, data.pin);
+        result = handleLogin(data);
+        break;
+      case "getShops":
+        result = { success: true, shops: getObjects(SHEETS.Shops.name) };
+        break;
+      case "createShop":
+        result = handleCreateShop(data);
+        break;
+      case "updateShop":
+        result = handleUpdateShop(data);
+        break;
+      case "getUsers":
+      case "getEmployees":
+        result = handleGetUsers();
+        break;
+      case "createUser":
+      case "createEmployee":
+        result = handleCreateUser(data);
+        break;
+      case "updateUser":
+      case "updateEmployee":
+        result = handleUpdateUser(data);
         break;
       case "getProducts":
-        result = handleGetProducts();
-        break;
-      case "getEmployees":
-        result = handleGetEmployees();
-        break;
-      case "createEmployee":
-        result = handleCreateEmployee(data);
-        break;
-      case "updateEmployee":
-        result = handleUpdateEmployee(data);
+        result = { success: true, products: getObjects(SHEETS.Products.name) };
         break;
       case "createProduct":
         result = handleCreateProduct(data);
@@ -148,184 +117,515 @@ function doPost(e) {
       case "updateProduct":
         result = handleUpdateProduct(data);
         break;
+      case "getTodayReport":
+        result = handleGetTodayReport(data);
+        break;
+      case "getOpeningStock":
       case "getTodayOpeningStock":
-        result = handleGetTodayOpeningStock();
+        result = handleGetOpeningStock(data);
         break;
+      case "submitDailySales":
+        result = handleSubmitReport(data, "sales");
+        break;
+      case "submitDailyStock":
+        result = handleSubmitReport(data, "stock");
+        break;
+      case "submitFullDailyReport":
       case "submitDailyReport":
-        result = handleSubmitDailyReport(data);
+        result = handleSubmitReport(data, "full");
         break;
+      case "getMyReports":
+      case "getEmployeeReports":
+        result = handleGetMyReports(data);
+        break;
+      case "getDashboard":
       case "getAdminDashboard":
-        result = handleGetAdminDashboard(data.date);
+        result = handleGetDashboard(data);
         break;
       case "getReportsByDate":
-        result = handleGetReportsByDate(data.startDate, data.endDate, data.employeeId);
+        result = Object.assign({ success: true }, getReportBundle(data));
         break;
-      case "getEmployeeReports":
-        result = handleGetEmployeeReports(data.employeeId);
+      case "getDailySalesReport":
+        result = handleGetDailySalesReport(data);
+        break;
+      case "getDailyStockReport":
+        result = handleGetDailyStockReport(data);
+        break;
+      case "getTodayCollection":
+        result = handleGetTodayCollection(data);
+        break;
+      case "submitDailyCollection":
+        result = handleSubmitDailyCollection(data);
+        break;
+      case "getCollections":
+        result = handleGetCollections(data);
+        break;
+      case "getMonthlyCollectionReport":
+        result = handleGetMonthlyCollectionReport(data);
+        break;
+      case "updateCollectionByAdmin":
+        result = handleUpdateCollectionByAdmin(data);
+        break;
+      case "updateCollectionDeposit":
+        result = handleUpdateCollectionByAdmin(data);
+        break;
+      case "approveCollection":
+        result = handleUpdateCollectionStatus(data, "Approved");
+        break;
+      case "rejectCollection":
+        result = handleUpdateCollectionStatus(data, "Rejected");
+        break;
+      case "reopenCollection":
+        result = handleUpdateCollectionStatus(data, "Reopened");
         break;
       case "approveReport":
-        result = handleUpdateReportStatus(data.reportId, "Approved", data.adminId);
+        result = handleUpdateReportStatus(data.reportId, "Approved", data.adminId || data.userId || "");
         break;
       case "rejectReport":
-        result = handleUpdateReportStatus(data.reportId, "Rejected", data.adminId);
+        result = handleUpdateReportStatus(data.reportId, "Rejected", data.adminId || data.userId || "");
         break;
       case "reopenReport":
-        result = handleUpdateReportStatus(data.reportId, "Reopened", data.adminId);
+        result = handleUpdateReportStatus(data.reportId, "Reopened", data.adminId || data.userId || "");
+        break;
+      case "getStockMismatchReport":
+        result = handleGetStockMismatchReport(data);
+        break;
+      case "getCreditSalesReport":
+        result = handleGetCreditSalesReport(data);
+        break;
+      case "getLiveWeight":
+        result = { success: true, liveWeight: getObjects(SHEETS.LiveWeight.name) };
+        break;
+      case "submitLiveWeight":
+        result = handleSubmitLiveWeight(data);
         break;
       default:
         result = { success: false, error: "Unknown API action: " + action };
     }
-    
-    return jsonResponse(result);
-    
-  } catch (err) {
-    logAction("SYSTEM", "ERROR", err.toString());
-    return jsonResponse({ success: false, error: err.toString() });
-  } finally {
-    lock.releaseLock();
-  }
-}
 
-// Enable standard GET calls for setup & verification if requested
-function doGet(e) {
-  const action = e.parameter.action;
-  if (action === "setup") {
+    return jsonResponse(result);
+  } catch (err) {
+    logAction("SYSTEM", "ERROR", String(err));
+    return jsonResponse({ success: false, error: String(err) });
+  } finally {
     try {
-      const msg = setupSheets();
-      return jsonResponse({ success: true, message: msg });
-    } catch(err) {
-      return jsonResponse({ success: false, error: err.toString() });
+      lock.releaseLock();
+    } catch (ignored) {
+      // Lock may not have been acquired if parsing failed very early.
     }
   }
-  return jsonResponse({ success: true, message: "Apps Script API is running. Send POST requests to communicate." });
 }
 
-/**
- * Return JSON Response with CORS headers
- */
 function jsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * Helper to turn a sheet's rows into objects
- */
-function getSheetDataAsObjects(sheetName) {
+function ensureHeaders(sheet, headers) {
+  if (sheet.getMaxColumns() < headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
+  }
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#f3f4f6");
+  sheet.setFrozenRows(1);
+}
+
+function seedShops() {
+  const sheet = getSheet(SHEETS.Shops.name);
+  if (sheet.getLastRow() > 1) return;
+  const now = nowIso();
+  appendRows(SHEETS.Shops.name, [
+    ["SHOP001", "Kisutu", "Kisutu", "Kisutu Incharge", "+255700000001", "Active", now],
+    ["SHOP002", "Kigamboni", "Kigamboni", "Kigamboni Incharge", "+255700000002", "Active", now],
+    ["SHOP003", "Utumbo", "Utumbo", "Utumbo Incharge", "+255700000003", "Active", now]
+  ]);
+}
+
+function seedUsers() {
+  const sheet = getSheet(SHEETS.Users.name);
+  if (sheet.getLastRow() > 1) return;
+  const now = nowIso();
+  appendRows(SHEETS.Users.name, [
+    ["USR001", "Admin User", "+255700000000", "1234", "Admin", "", "Active", now],
+    ["USR002", "Kisutu Employee", "+255700000101", "1111", "Employee", "SHOP001", "Active", now],
+    ["USR003", "Kigamboni Employee", "+255700000102", "2222", "Employee", "SHOP002", "Active", now],
+    ["USR004", "Utumbo Employee", "+255700000103", "3333", "Employee", "SHOP003", "Active", now]
+  ]);
+}
+
+function seedProducts() {
+  const sheet = getSheet(SHEETS.Products.name);
+  if (sheet.getLastRow() > 1) return;
+  const now = nowIso();
+  appendRows(SHEETS.Products.name, [
+    ["PROD001", "Live Chicken", "Chicken", "KG", 7500, "Yes", now],
+    ["PROD002", "Dressed Chicken", "Chicken", "KG", 9500, "Yes", now],
+    ["PROD003", "Broiler Chicken", "Chicken", "Bird", 11000, "Yes", now],
+    ["PROD004", "Chicken Parts", "Chicken", "KG", 8500, "Yes", now],
+    ["PROD005", "Egg Tray", "Eggs", "Tray", 9000, "Yes", now],
+    ["PROD006", "Loose Eggs", "Eggs", "Piece", 350, "Yes", now]
+  ]);
+}
+
+function getSheet(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) return [];
-  
+  if (!sheet) throw new Error("Missing sheet: " + sheetName + ". Run setupSheets() first.");
+  return sheet;
+}
+
+function getHeaders(sheetName) {
+  const sheet = getSheet(sheetName);
+  return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+}
+
+function getObjects(sheetName) {
+  const sheet = getSheet(sheetName);
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
-  
-  const range = sheet.getRange(1, 1, lastRow, sheet.getLastColumn());
-  const values = range.getValues();
+  const values = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
   const headers = values[0];
-  const objects = [];
-  
-  for (let r = 1; r < values.length; r++) {
-    let obj = {};
-    for (let c = 0; c < headers.length; c++) {
-      obj[headers[c]] = values[r][c];
-    }
-    objects.push(obj);
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    const obj = {};
+    headers.forEach(function (header, index) {
+      obj[header] = values[i][index];
+    });
+    rows.push(obj);
   }
-  return objects;
+  return rows;
 }
 
-/**
- * Helper to write a log entry
- */
-function logAction(userId, action, details) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEETS.Logs.name);
-    if (!sheet) return;
-    
-    const logId = "LOG" + new Date().getTime() + Math.floor(Math.random() * 1000);
-    sheet.appendRow([
-      logId,
-      userId,
-      action,
-      details,
-      new Date().toISOString()
-    ]);
-  } catch (e) {
-    Logger.log("Failed to log action: " + e.toString());
-  }
+function appendRows(sheetName, rows) {
+  if (!rows.length) return;
+  const sheet = getSheet(sheetName);
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
 }
 
-function findRowByColumnValue(sheetName, columnName, value) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet || sheet.getLastRow() <= 1) return -1;
+function appendObject(sheetName, obj) {
+  const headers = getHeaders(sheetName);
+  appendRows(sheetName, [headers.map(function (header) { return obj[header] === undefined ? "" : obj[header]; })]);
+}
 
+function updateObjectById(sheetName, idColumn, idValue, patch) {
+  const sheet = getSheet(sheetName);
   const values = sheet.getDataRange().getValues();
   const headers = values[0];
-  const columnIndex = headers.indexOf(columnName);
-  if (columnIndex === -1) return -1;
+  const idIndex = headers.indexOf(idColumn);
+  if (idIndex === -1) return false;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idIndex]) === String(idValue)) {
+      headers.forEach(function (header, index) {
+        if (patch[header] !== undefined) {
+          sheet.getRange(i + 1, index + 1).setValue(patch[header]);
+        }
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+function deleteRowsWhere(sheetName, predicate) {
+  const sheet = getSheet(sheetName);
+  if (sheet.getLastRow() <= 1) return;
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  for (let i = values.length - 1; i >= 1; i--) {
+    const obj = {};
+    headers.forEach(function (header, index) { obj[header] = values[i][index]; });
+    if (predicate(obj)) sheet.deleteRow(i + 1);
+  }
+}
+
+function getSalesQuantityByProduct(shopId, date) {
+  const quantities = {};
+  getObjects(SHEETS.DailySalesEntries.name)
+    .filter(function (row) { return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === normalizeDate(date); })
+    .forEach(function (row) {
+      const productId = String(row.ProductID);
+      quantities[productId] = (quantities[productId] || 0) + toNumber(row.Quantity);
+    });
+  return quantities;
+}
+
+function recalculateExistingStockSales(reportId, shopId, date) {
+  const quantities = getSalesQuantityByProduct(shopId, date);
+  const sheet = getSheet(SHEETS.DailyStockEntries.name);
+  if (sheet.getLastRow() <= 1) return;
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  const reportIdx = headers.indexOf("ReportID");
+  const productIdx = headers.indexOf("ProductID");
+  const openingIdx = headers.indexOf("OpeningStock");
+  const receiptIdx = headers.indexOf("Receipt");
+  const actualIdx = headers.indexOf("ActualClosing");
+  const salesIdx = headers.indexOf("Sales");
+  const expectedIdx = headers.indexOf("ExpectedClosing");
+  const mismatchIdx = headers.indexOf("Mismatch");
 
   for (let i = 1; i < values.length; i++) {
-    if (String(values[i][columnIndex]) === String(value)) {
-      return i + 1;
-    }
-  }
-
-  return -1;
-}
-
-function deleteRowsByReportId(sheetName, reportId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet || sheet.getLastRow() <= 1) return;
-
-  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  const reportIdColumn = headers.indexOf("ReportID") + 1;
-  if (reportIdColumn <= 0) return;
-
-  for (let row = sheet.getLastRow(); row >= 2; row--) {
-    if (String(sheet.getRange(row, reportIdColumn).getValue()) === String(reportId)) {
-      sheet.deleteRow(row);
-    }
+    if (String(values[i][reportIdx]) !== String(reportId)) continue;
+    const productId = String(values[i][productIdx]);
+    const sales = quantities[productId] || 0;
+    const expected = roundNumber(toNumber(values[i][openingIdx]) + toNumber(values[i][receiptIdx]) - sales);
+    const mismatch = roundNumber(toNumber(values[i][actualIdx]) - expected);
+    sheet.getRange(i + 1, salesIdx + 1).setValue(sales);
+    sheet.getRange(i + 1, expectedIdx + 1).setValue(expected);
+    sheet.getRange(i + 1, mismatchIdx + 1).setValue(mismatch);
   }
 }
 
-function validateDailyReportPayload(data) {
-  if (!data) return "Report payload is required";
-  if (!data.employeeId) return "Employee ID is required";
-  if (!data.date) return "Report date is required";
+function findShop(shopId) {
+  return getObjects(SHEETS.Shops.name).find(function (shop) { return String(shop.ShopID) === String(shopId); });
+}
 
-  const employees = getSheetDataAsObjects(SHEETS.Employees.name);
-  const employee = employees.find(e => String(e.EmployeeID) === String(data.employeeId));
-  if (!employee) return "Employee not found";
-  if (employee.Status !== "Active") return "Employee account is inactive";
-  if (employee.Role !== "Employee") return "Only employee accounts can submit daily reports";
+function findUser(userId) {
+  return getObjects(SHEETS.Users.name).find(function (user) { return String(user.UserID) === String(userId); });
+}
 
-  const products = getSheetDataAsObjects(SHEETS.Products.name);
-  const activeProductIds = {};
-  products.forEach(product => {
-    if (product.Active === "Yes") activeProductIds[String(product.ProductID)] = true;
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function makeId(prefix) {
+  return prefix + new Date().getTime() + Math.floor(Math.random() * 1000);
+}
+
+function normalizeDate(value) {
+  if (!value) return "";
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  }
+  return String(value).split("T")[0];
+}
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return isFinite(parsed) ? parsed : 0;
+}
+
+function roundNumber(value) {
+  return Number(toNumber(value).toFixed(2));
+}
+
+function dayName(dateStr) {
+  const date = new Date(normalizeDate(dateStr) + "T00:00:00");
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), "EEEE");
+}
+
+function inDateRange(rowDate, startDate, endDate) {
+  const date = normalizeDate(rowDate);
+  if (startDate && date < startDate) return false;
+  if (endDate && date > endDate) return false;
+  return true;
+}
+
+function reportTotals(reportId) {
+  const sales = getObjects(SHEETS.DailySalesEntries.name).filter(function (row) { return String(row.ReportID) === String(reportId); });
+  const stocks = getObjects(SHEETS.DailyStockEntries.name).filter(function (row) { return String(row.ReportID) === String(reportId); });
+  return {
+    CashSales: sales.reduce(function (sum, row) { return sum + toNumber(row.CashSales); }, 0),
+    CreditSales: sales.reduce(function (sum, row) { return sum + toNumber(row.CreditSales); }, 0),
+    TotalSales: sales.reduce(function (sum, row) { return sum + toNumber(row.TotalAmount); }, 0),
+    StockMismatch: stocks.filter(function (row) { return toNumber(row.Mismatch) !== 0; }).length
+  };
+}
+
+function enrichReport(report) {
+  const totals = reportTotals(report.ReportID);
+  return Object.assign({}, report, totals);
+}
+
+function getEmployeeName(userId) {
+  const user = findUser(userId);
+  return user ? user.Name : "";
+}
+
+function addEmployeeName(row) {
+  const copy = Object.assign({}, row);
+  copy.EmployeeName = copy.EmployeeName || getEmployeeName(copy.EmployeeID);
+  return copy;
+}
+
+function logAction(userId, action, details) {
+  try {
+    appendObject(SHEETS.Logs.name, {
+      LogID: makeId("LOG"),
+      UserID: userId,
+      Action: action,
+      Details: details,
+      CreatedAt: nowIso()
+    });
+  } catch (err) {
+    Logger.log("Log failed: " + err);
+  }
+}
+
+function handleLogin(data) {
+  const phone = String(data.phone || "").trim();
+  const pin = String(data.pin || "").trim();
+  const users = getObjects(SHEETS.Users.name);
+  const shops = getObjects(SHEETS.Shops.name);
+  const user = users.find(function (row) {
+    return String(row.Phone).trim() === phone && String(row.PIN).trim() === pin;
+  });
+  if (!user) return { success: false, error: "Invalid phone or PIN." };
+  if (user.Status !== "Active") return { success: false, error: "Account inactive." };
+  const shop = shops.find(function (row) { return String(row.ShopID) === String(user.ShopID); });
+  logAction(user.UserID, "LOGIN", "Successful login.");
+  return {
+    success: true,
+    user: {
+      userId: user.UserID,
+      employeeId: user.UserID,
+      name: user.Name,
+      phone: user.Phone,
+      role: user.Role,
+      shopId: user.ShopID || "",
+      shopName: shop ? shop.ShopName : "",
+      status: user.Status,
+      allowMultiShop: user.Role === "Admin"
+    }
+  };
+}
+
+function handleGetUsers() {
+  const shops = getObjects(SHEETS.Shops.name);
+  const users = getObjects(SHEETS.Users.name).map(function (user) {
+    const shop = shops.find(function (row) { return String(row.ShopID) === String(user.ShopID); });
+    const copy = Object.assign({}, user, { EmployeeID: user.UserID, ShopName: shop ? shop.ShopName : "" });
+    delete copy.PIN;
+    return copy;
+  });
+  return { success: true, users: users, employees: users };
+}
+
+function handleCreateShop(data) {
+  const shopName = String(data.shopName || "").trim();
+  if (!shopName) return { success: false, error: "Shop name is required." };
+  const shops = getObjects(SHEETS.Shops.name);
+  if (shops.some(function (shop) { return String(shop.ShopName).toLowerCase() === shopName.toLowerCase(); })) {
+    return { success: false, error: "Shop already exists." };
+  }
+  const shopId = makeId("SHOP");
+  appendObject(SHEETS.Shops.name, {
+    ShopID: shopId,
+    ShopName: shopName,
+    Location: data.location || "",
+    InchargeName: data.inchargeName || "",
+    InchargeContact: data.inchargeContact || "",
+    Status: data.status === "Inactive" ? "Inactive" : "Active",
+    CreatedAt: nowIso()
+  });
+  return { success: true, shopId: shopId };
+}
+
+function handleUpdateShop(data) {
+  const ok = updateObjectById(SHEETS.Shops.name, "ShopID", data.shopId || data.ShopID, {
+    ShopName: data.shopName,
+    Location: data.location,
+    InchargeName: data.inchargeName,
+    InchargeContact: data.inchargeContact,
+    Status: data.status
+  });
+  return ok ? { success: true } : { success: false, error: "Shop not found." };
+}
+
+function handleCreateUser(data) {
+  const phone = String(data.phone || "").trim();
+  if (!phone) return { success: false, error: "Phone is required." };
+  const users = getObjects(SHEETS.Users.name);
+  if (users.some(function (user) { return String(user.Phone).trim() === phone; })) {
+    return { success: false, error: "Phone number already exists." };
+  }
+  const userId = makeId("USR");
+  appendObject(SHEETS.Users.name, {
+    UserID: userId,
+    Name: data.name || "",
+    Phone: phone,
+    PIN: data.pin || "",
+    Role: data.role === "Admin" ? "Admin" : "Employee",
+    ShopID: data.shopId || data.ShopID || "",
+    Status: data.status === "Inactive" ? "Inactive" : "Active",
+    CreatedAt: nowIso()
+  });
+  return { success: true, userId: userId, employeeId: userId };
+}
+
+function handleUpdateUser(data) {
+  const ok = updateObjectById(SHEETS.Users.name, "UserID", data.userId || data.employeeId || data.UserID, {
+    Name: data.name,
+    Phone: data.phone,
+    PIN: data.pin,
+    Role: data.role,
+    ShopID: data.shopId,
+    Status: data.status
+  });
+  return ok ? { success: true } : { success: false, error: "User not found." };
+}
+
+function handleCreateProduct(data) {
+  const productId = makeId("PROD");
+  appendObject(SHEETS.Products.name, {
+    ProductID: productId,
+    ProductName: data.productName || "",
+    Category: data.category || "Chicken",
+    UOM: data.uom || "",
+    DefaultRate: toNumber(data.defaultRate),
+    Active: data.active === "No" ? "No" : "Yes",
+    CreatedAt: nowIso()
+  });
+  return { success: true, productId: productId };
+}
+
+function handleUpdateProduct(data) {
+  const ok = updateObjectById(SHEETS.Products.name, "ProductID", data.productId || data.ProductID, {
+    ProductName: data.productName,
+    Category: data.category,
+    UOM: data.uom,
+    DefaultRate: data.defaultRate === undefined ? undefined : toNumber(data.defaultRate),
+    Active: data.active
+  });
+  return ok ? { success: true } : { success: false, error: "Product not found." };
+}
+
+function validateSubmission(data, requireSales, requireStock) {
+  if (!data) return "Report payload is required.";
+  if (!data.shopId) return "Shop is required.";
+  if (!data.employeeId) return "Employee is required.";
+  if (!data.date) return "Date is required.";
+
+  const user = findUser(data.employeeId);
+  if (!user || user.Status !== "Active") return "Active employee account is required.";
+  if (user.Role !== "Employee") return "Only employees can submit daily reports.";
+  if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return "Employee can submit only for their assigned shop.";
+
+  const shop = findShop(data.shopId);
+  if (!shop || shop.Status !== "Active") return "Active shop is required.";
+
+  const sales = Array.isArray(data.salesEntries) ? data.salesEntries : [];
+  const stocks = Array.isArray(data.stockEntries) ? data.stockEntries : [];
+  if (requireSales && sales.length === 0) return "At least one sales row is required.";
+  if (requireStock && stocks.length === 0) return "Stock rows are required.";
+
+  const activeProducts = {};
+  getObjects(SHEETS.Products.name).forEach(function (product) {
+    if (product.Active === "Yes") activeProducts[String(product.ProductID)] = true;
   });
 
-  const salesEntries = Array.isArray(data.salesEntries) ? data.salesEntries : [];
-  const stockEntries = Array.isArray(data.stockEntries) ? data.stockEntries : [];
-  if (stockEntries.length === 0) return "Stock entries are required";
-
-  for (let i = 0; i < salesEntries.length; i++) {
-    const sale = salesEntries[i];
-    if (!activeProductIds[String(sale.productId)]) return "Inactive or unknown sales product: " + sale.productName;
-    if (!isFinite(Number(sale.quantity)) || Number(sale.quantity) <= 0) return "Invalid sales quantity for " + sale.productName;
-    if (!isFinite(Number(sale.rate)) || Number(sale.rate) < 0) return "Invalid rate for " + sale.productName;
-    if (sale.saleType !== "Cash" && sale.saleType !== "Credit") return "Invalid sale type for " + sale.productName;
+  for (let i = 0; i < sales.length; i++) {
+    const sale = sales[i];
+    if (!activeProducts[String(sale.productId)]) return "Unknown or inactive sales product: " + sale.productName;
+    if (toNumber(sale.quantity) <= 0) return "Invalid quantity for " + sale.productName;
+    if (toNumber(sale.rate) < 0) return "Invalid rate for " + sale.productName;
     if (sale.saleType === "Credit" && !String(sale.customerName || "").trim()) {
       return "Customer name is required for credit sale: " + sale.productName;
     }
   }
 
-  for (let j = 0; j < stockEntries.length; j++) {
-    const stock = stockEntries[j];
-    if (!activeProductIds[String(stock.productId)]) return "Inactive or unknown stock product: " + stock.productName;
+  for (let j = 0; j < stocks.length; j++) {
+    const stock = stocks[j];
+    if (!activeProducts[String(stock.productId)]) return "Unknown or inactive stock product: " + stock.productName;
     if (!isFinite(Number(stock.openingStock))) return "Invalid opening stock for " + stock.productName;
     if (!isFinite(Number(stock.receipt))) return "Invalid receipt for " + stock.productName;
     if (!isFinite(Number(stock.sales))) return "Invalid sales quantity for " + stock.productName;
@@ -333,506 +633,576 @@ function validateDailyReportPayload(data) {
       return "Actual closing stock is required for " + stock.productName;
     }
   }
-
   return null;
 }
 
-/**
- * Action Handlers
- */
+function handleGetOpeningStock(data) {
+  const shopId = data.shopId || "";
+  const date = normalizeDate(data.date || new Date());
+  const shop = findShop(shopId) || {};
+  const products = getObjects(SHEETS.Products.name).filter(function (product) { return product.Active === "Yes"; });
+  const stockRows = getObjects(SHEETS.DailyStockEntries.name)
+    .filter(function (row) { return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) < date; })
+    .sort(function (a, b) { return String(normalizeDate(b.Date) + b.CreatedAt).localeCompare(String(normalizeDate(a.Date) + a.CreatedAt)); });
 
-function handleLogin(phone, pin) {
-  if (!phone || !pin) {
-    return { success: false, error: "Phone and PIN are required" };
-  }
-  
-  const employees = getSheetDataAsObjects(SHEETS.Employees.name);
-  const employee = employees.find(e => String(e.Phone).trim() === String(phone).trim() && String(e.PIN).trim() === String(pin).trim());
-  
-  if (!employee) {
-    return { success: false, error: "Invalid Phone or PIN" };
-  }
-  
-  if (employee.Status !== "Active") {
-    return { success: false, error: "Account is inactive. Please contact your administrator." };
-  }
-  
-  logAction(employee.EmployeeID, "LOGIN", "Successful login");
-  
-  return {
-    success: true,
-    user: {
-      employeeId: employee.EmployeeID,
-      name: employee.Name,
-      phone: employee.Phone,
-      role: employee.Role,
-      status: employee.Status
-    }
-  };
-}
-
-function handleGetProducts() {
-  const products = getSheetDataAsObjects(SHEETS.Products.name);
-  // Only active products returned for employees, admin sees all
-  return { success: true, products: products };
-}
-
-function handleGetEmployees() {
-  const employees = getSheetDataAsObjects(SHEETS.Employees.name);
-  // Clear PINs for privacy before sending to client
-  const safeEmployees = employees.map(emp => {
-    let copy = {...emp};
-    delete copy.PIN;
-    return copy;
+  const openingStock = products.map(function (product) {
+    const last = stockRows.find(function (row) { return String(row.ProductID) === String(product.ProductID); });
+    return {
+      ShopID: shopId,
+      ShopName: shop.ShopName || "",
+      ProductID: product.ProductID,
+      ProductName: product.ProductName,
+      Category: product.Category,
+      UOM: product.UOM,
+      CurrentOpeningStock: last ? toNumber(last.ActualClosing) : 0,
+      LastUpdatedDate: last ? normalizeDate(last.Date) : ""
+    };
   });
-  return { success: true, employees: safeEmployees };
-}
-
-function handleCreateEmployee(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.Employees.name);
-  const employees = getSheetDataAsObjects(SHEETS.Employees.name);
-  
-  // Validate unique phone
-  const existing = employees.find(e => String(e.Phone).trim() === String(data.phone).trim());
-  if (existing) {
-    return { success: false, error: "Employee with this phone number already exists" };
-  }
-  
-  const empId = "EMP" + (employees.length + 101);
-  sheet.appendRow([
-    empId,
-    data.name,
-    data.phone,
-    data.pin,
-    data.role || "Employee",
-    data.status || "Active",
-    new Date().toISOString()
-  ]);
-  
-  logAction("ADMIN", "CREATE_EMPLOYEE", "Created employee ID: " + empId);
-  return { success: true, employeeId: empId };
-}
-
-function handleUpdateEmployee(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.Employees.name);
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0];
-  
-  const empIdIdx = headers.indexOf("EmployeeID");
-  let foundRow = -1;
-  
-  for (let i = 1; i < values.length; i++) {
-    if (values[i][empIdIdx] === data.employeeId) {
-      foundRow = i + 1; // 1-based index
-      break;
-    }
-  }
-  
-  if (foundRow === -1) {
-    return { success: false, error: "Employee not found" };
-  }
-  
-  // Update fields
-  if (data.name) sheet.getRange(foundRow, headers.indexOf("Name") + 1).setValue(data.name);
-  if (data.phone) sheet.getRange(foundRow, headers.indexOf("Phone") + 1).setValue(data.phone);
-  if (data.pin) sheet.getRange(foundRow, headers.indexOf("PIN") + 1).setValue(data.pin);
-  if (data.role) sheet.getRange(foundRow, headers.indexOf("Role") + 1).setValue(data.role);
-  if (data.status) sheet.getRange(foundRow, headers.indexOf("Status") + 1).setValue(data.status);
-  
-  logAction("ADMIN", "UPDATE_EMPLOYEE", "Updated employee ID: " + data.employeeId);
-  return { success: true };
-}
-
-function handleCreateProduct(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.Products.name);
-  const products = getSheetDataAsObjects(SHEETS.Products.name);
-  
-  const prodId = "PROD" + (products.length + 101);
-  sheet.appendRow([
-    prodId,
-    data.productName,
-    data.category || "General",
-    data.uom,
-    Number(data.defaultRate),
-    data.active || "Yes"
-  ]);
-  
-  // Also add entry to OpeningStock
-  const openSheet = ss.getSheetByName(SHEETS.OpeningStock.name);
-  openSheet.appendRow([
-    prodId,
-    data.productName,
-    0, // Initial stock 0
-    new Date().toISOString()
-  ]);
-  
-  logAction("ADMIN", "CREATE_PRODUCT", "Created product ID: " + prodId);
-  return { success: true, productId: prodId };
-}
-
-function handleUpdateProduct(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.Products.name);
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0];
-  
-  const prodIdIdx = headers.indexOf("ProductID");
-  let foundRow = -1;
-  
-  for (let i = 1; i < values.length; i++) {
-    if (values[i][prodIdIdx] === data.productId) {
-      foundRow = i + 1;
-      break;
-    }
-  }
-  
-  if (foundRow === -1) {
-    return { success: false, error: "Product not found" };
-  }
-  
-  if (data.productName) sheet.getRange(foundRow, headers.indexOf("ProductName") + 1).setValue(data.productName);
-  if (data.category) sheet.getRange(foundRow, headers.indexOf("Category") + 1).setValue(data.category);
-  if (data.uom) sheet.getRange(foundRow, headers.indexOf("UOM") + 1).setValue(data.uom);
-  if (data.defaultRate !== undefined) sheet.getRange(foundRow, headers.indexOf("DefaultRate") + 1).setValue(Number(data.defaultRate));
-  if (data.active) sheet.getRange(foundRow, headers.indexOf("Active") + 1).setValue(data.active);
-  
-  // Sync name to OpeningStock
-  const openSheet = ss.getSheetByName(SHEETS.OpeningStock.name);
-  const openValues = openSheet.getDataRange().getValues();
-  for (let j = 1; j < openValues.length; j++) {
-    if (openValues[j][0] === data.productId) {
-      if (data.productName) openSheet.getRange(j + 1, 2).setValue(data.productName);
-      break;
-    }
-  }
-  
-  logAction("ADMIN", "UPDATE_PRODUCT", "Updated product ID: " + data.productId);
-  return { success: true };
-}
-
-function handleGetTodayOpeningStock() {
-  const openingStock = getSheetDataAsObjects(SHEETS.OpeningStock.name);
   return { success: true, openingStock: openingStock };
 }
 
-/**
- * Handle report submissions:
- * Adds DailySales rows
- * Adds DailyStock rows
- * Creates a DailySummary entry
- * Records CreditSales if any
- * Updates OpeningStock with actual closing stocks
- */
-function handleSubmitDailyReport(data) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+function handleGetTodayReport(data) {
+  const date = normalizeDate(data.date || new Date());
+  const report = getObjects(SHEETS.DailyReports.name).find(function (row) {
+    return String(row.ShopID) === String(data.shopId) && normalizeDate(row.Date) === date;
+  });
+  return { success: true, report: report ? enrichReport(report) : null };
+}
 
-  const validationError = validateDailyReportPayload(data);
-  if (validationError) {
-    return { success: false, error: validationError };
-  }
+function handleSubmitReport(data, mode) {
+  const validation = validateSubmission(data, mode !== "stock", mode !== "sales");
+  if (validation) return { success: false, error: validation };
 
-  let reportId = data.reportId || "";
-  let correctionSummaryRow = -1;
-
-  if (reportId) {
-    correctionSummaryRow = findRowByColumnValue(SHEETS.DailySummary.name, "ReportID", reportId);
-    if (correctionSummaryRow === -1) {
-      return { success: false, error: "Reopened report was not found" };
-    }
-
-    const summarySheetForStatus = ss.getSheetByName(SHEETS.DailySummary.name);
-    const summaryHeadersForStatus = summarySheetForStatus.getRange(1, 1, 1, summarySheetForStatus.getLastColumn()).getValues()[0];
-    const statusColumn = summaryHeadersForStatus.indexOf("Status") + 1;
-    const currentStatus = summarySheetForStatus.getRange(correctionSummaryRow, statusColumn).getValue();
-    if (currentStatus !== "Reopened") {
-      return { success: false, error: "Only reopened reports can be corrected" };
-    }
-
-    deleteRowsByReportId(SHEETS.DailySales.name, reportId);
-    deleteRowsByReportId(SHEETS.DailyStock.name, reportId);
-    deleteRowsByReportId(SHEETS.CreditSales.name, reportId);
+  const date = normalizeDate(data.date);
+  const reports = getObjects(SHEETS.DailyReports.name);
+  let existing = null;
+  if (data.reportId) {
+    existing = reports.find(function (row) { return String(row.ReportID) === String(data.reportId); });
+    if (!existing) return { success: false, error: "Reopened report not found." };
+    if (existing.Status !== "Reopened" && mode === "full") return { success: false, error: "Only reopened reports can be corrected." };
   } else {
-    reportId = "REP" + new Date().getTime() + Math.floor(Math.random() * 1000);
+    existing = reports.find(function (row) { return String(row.ShopID) === String(data.shopId) && normalizeDate(row.Date) === date; });
   }
 
-  const dateStr = data.date || new Date().toISOString().split("T")[0];
-  const empId = data.employeeId;
-  const empName = data.employeeName;
-  
-  // 1. Insert Sales Entries
-  const salesSheet = ss.getSheetByName(SHEETS.DailySales.name);
-  let totalSales = 0;
-  let cashSales = 0;
-  let creditSales = 0;
-  
-  if (data.salesEntries && data.salesEntries.length > 0) {
-    data.salesEntries.forEach(s => {
-      const totalAmount = Number(s.quantity) * Number(s.rate);
-      let cashAmt = 0;
-      let creditAmt = 0;
-      
-      if (s.saleType === "Cash") {
-        cashAmt = totalAmount;
-        cashSales += totalAmount;
-      } else {
-        creditAmt = totalAmount;
-        creditSales += totalAmount;
-      }
-      totalSales += totalAmount;
-      
-      salesSheet.appendRow([
+  if (existing && existing.Status === "Approved") {
+    return { success: false, error: "Approved reports cannot be changed. Ask admin to reopen it first." };
+  }
+
+  const reportId = existing ? existing.ReportID : makeId("REP");
+  const now = nowIso();
+  const shop = findShop(data.shopId) || {};
+  if (mode !== "stock") {
+    deleteRowsWhere(SHEETS.DailySalesEntries.name, function (row) { return String(row.ReportID) === String(reportId); });
+  }
+  if (mode !== "sales") {
+    deleteRowsWhere(SHEETS.DailyStockEntries.name, function (row) { return String(row.ReportID) === String(reportId); });
+  }
+
+  const salesRows = [];
+  if (mode !== "stock") {
+    (data.salesEntries || []).forEach(function (sale) {
+      const total = roundNumber(toNumber(sale.quantity) * toNumber(sale.rate));
+      salesRows.push([
+        makeId("SAL"),
         reportId,
-        dateStr,
-        empId,
-        empName,
-        s.productId,
-        s.productName,
-        s.uom,
-        Number(s.quantity),
-        Number(s.rate),
-        s.saleType,
-        cashAmt,
-        creditAmt,
-        s.efdNumber || "",
-        s.customerName || "",
-        totalAmount,
-        new Date().toISOString()
+        data.shopId,
+        data.shopName || shop.ShopName || "",
+        date,
+        data.employeeId,
+        sale.productId,
+        sale.productName,
+        sale.uom,
+        toNumber(sale.quantity),
+        toNumber(sale.rate),
+        sale.saleType,
+        sale.saleType === "Cash" ? total : 0,
+        sale.saleType === "Credit" ? total : 0,
+        sale.efdNumber || "",
+        sale.saleType === "Credit" ? sale.customerName || "" : "",
+        total,
+        now
       ]);
-      
-      // If Credit Sale, record in CreditSales sheet
-      if (s.saleType === "Credit") {
-        const creditSheet = ss.getSheetByName(SHEETS.CreditSales.name);
-        creditSheet.appendRow([
-          reportId,
-          dateStr,
-          empId,
-          empName,
-          s.customerName || "Unknown Customer",
-          s.productName,
-          totalAmount,
-          s.efdNumber || "",
-          "Pending Approval", // Initial status
-          new Date().toISOString()
-        ]);
-      }
     });
   }
-  
-  // 2. Insert Stock Entries & Calculate expected closing / mismatches
-  const stockSheet = ss.getSheetByName(SHEETS.DailyStock.name);
-  let stockMismatchCount = 0;
-  let totalStockSales = 0;
-  
-  if (data.stockEntries && data.stockEntries.length > 0) {
-    data.stockEntries.forEach(st => {
-      const opening = Number(st.openingStock);
-      const receipt = Number(st.receipt || 0);
-      const sales = Number(st.sales || 0);
-      const expected = opening + receipt - sales;
-      const actual = Number(st.actualClosing);
-      const mismatch = actual - expected;
-      
-      if (mismatch !== 0) {
-        stockMismatchCount++;
-      }
-      
-      stockSheet.appendRow([
+  appendRows(SHEETS.DailySalesEntries.name, salesRows);
+
+  const stockRows = [];
+  if (mode !== "sales") {
+    const salesQuantityByProduct = getSalesQuantityByProduct(data.shopId, date);
+    (data.stockEntries || []).forEach(function (stock) {
+      const opening = toNumber(stock.openingStock);
+      const receipt = toNumber(stock.receipt);
+      const sales = salesQuantityByProduct[String(stock.productId)] === undefined ? toNumber(stock.sales) : salesQuantityByProduct[String(stock.productId)];
+      const expected = roundNumber(opening + receipt - sales);
+      const actual = toNumber(stock.actualClosing);
+      stockRows.push([
+        makeId("STK"),
         reportId,
-        dateStr,
-        empId,
-        empName,
-        st.productId,
-        st.productName,
-        st.category || "",
-        st.uom,
+        data.shopId,
+        data.shopName || shop.ShopName || "",
+        date,
+        data.employeeId,
+        stock.productId,
+        stock.productName,
+        stock.category || "",
+        stock.uom,
+        stock.mtnNo || "",
         opening,
         receipt,
         sales,
         expected,
         actual,
-        mismatch,
-        new Date().toISOString()
+        roundNumber(actual - expected),
+        now
       ]);
-      
-      // Update the Master OpeningStock table with the new actual closing stock
-      const openSheet = ss.getSheetByName(SHEETS.OpeningStock.name);
-      const openValues = openSheet.getDataRange().getValues();
-      for (let j = 1; j < openValues.length; j++) {
-        if (openValues[j][0] === st.productId) {
-          openSheet.getRange(j + 1, 3).setValue(actual); // Update current opening stock
-          openSheet.getRange(j + 1, 4).setValue(new Date().toISOString()); // Update date
-          break;
-        }
-      }
     });
   }
-  
-  // 3. Create DailySummary
-  const summarySheet = ss.getSheetByName(SHEETS.DailySummary.name);
-  const summaryRow = [
-    reportId,
-    dateStr,
-    empId,
-    empName,
-    totalSales,
-    cashSales,
-    creditSales,
-    totalSales, // Total Stock Sales aligns with Total Sales for standard billing
-    stockMismatchCount,
-    "Pending Approval", // Default Status
-    new Date().toISOString()
-  ];
+  appendRows(SHEETS.DailyStockEntries.name, stockRows);
 
-  if (correctionSummaryRow > 0) {
-    summarySheet.getRange(correctionSummaryRow, 1, 1, summaryRow.length).setValues([summaryRow]);
-  } else {
-    summarySheet.appendRow(summaryRow);
+  if (mode === "sales") {
+    recalculateExistingStockSales(reportId, data.shopId, date);
   }
-  
-  logAction(empId, "SUBMIT_REPORT", "Submitted report ID: " + reportId + ", Sales: INR " + totalSales + ", Stock Mismatch count: " + stockMismatchCount);
-  
+
+  const reportPatch = {
+    ReportID: reportId,
+    ShopID: data.shopId,
+    ShopName: data.shopName || shop.ShopName || "",
+    Date: date,
+    EmployeeID: data.employeeId,
+    EmployeeName: data.employeeName || getEmployeeName(data.employeeId),
+    SalesSubmitted: mode === "stock" ? existing && existing.SalesSubmitted ? existing.SalesSubmitted : "No" : "Yes",
+    StockSubmitted: mode === "sales" ? existing && existing.StockSubmitted ? existing.StockSubmitted : "No" : "Yes",
+    Status: "Submitted",
+    SubmittedAt: now,
+    ApprovedBy: "",
+    ApprovedAt: ""
+  };
+
+  if (existing) updateObjectById(SHEETS.DailyReports.name, "ReportID", reportId, reportPatch);
+  else appendObject(SHEETS.DailyReports.name, reportPatch);
+
+  upsertCollection(data.shopId, date, reportId, data.employeeId, data.employeeName || getEmployeeName(data.employeeId));
+  const totals = reportTotals(reportId);
+  logAction(data.employeeId, "SUBMIT_REPORT", "Report " + reportId + " submitted for " + reportPatch.ShopName + " on " + date);
   return {
     success: true,
     reportId: reportId,
-    totalSales: totalSales,
-    cashSales: cashSales,
-    creditSales: creditSales,
-    mismatchCount: stockMismatchCount
+    totalSales: totals.TotalSales,
+    cashSales: totals.CashSales,
+    creditSalesAmount: totals.CreditSales,
+    mismatchCount: totals.StockMismatch
   };
 }
 
-function handleGetAdminDashboard(dashboardDate) {
-  const summaryList = getSheetDataAsObjects(SHEETS.DailySummary.name);
-  const salesList = getSheetDataAsObjects(SHEETS.DailySales.name);
-  const stockList = getSheetDataAsObjects(SHEETS.DailyStock.name);
-  
-  // Filter for today's date if specified, otherwise overall/today's UTC-adjusted local date
-  const targetDate = dashboardDate || new Date().toISOString().split("T")[0];
-  
-  const todaySummaries = summaryList.filter(s => s.Date.split("T")[0] === targetDate);
-  const todaySales = salesList.filter(s => s.Date.split("T")[0] === targetDate);
-  const todayStocks = stockList.filter(s => s.Date.split("T")[0] === targetDate);
-  
-  let totalSales = 0;
-  let cashSales = 0;
-  let creditSales = 0;
-  let mismatchCount = 0;
-  let reportsCount = todaySummaries.length;
-  
-  todaySummaries.forEach(s => {
-    totalSales += Number(s.TotalSales || 0);
-    cashSales += Number(s.CashSales || 0);
-    creditSales += Number(s.CreditSales || 0);
-    mismatchCount += Number(s.StockMismatch || 0);
+function buildCollectionBase(shopId, date, reportId, employeeId, employeeName) {
+  const shop = findShop(shopId) || {};
+  const normalizedDate = normalizeDate(date);
+  const reports = getObjects(SHEETS.DailyReports.name);
+  const report = reportId
+    ? reports.find(function (row) { return String(row.ReportID) === String(reportId); })
+    : reports.find(function (row) { return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === normalizedDate; });
+  const sales = getObjects(SHEETS.DailySalesEntries.name).filter(function (row) {
+    return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === normalizedDate;
   });
-  
-  // Calculate top-selling product
-  const productQuantities = {};
-  todaySales.forEach(s => {
-    productQuantities[s.ProductName] = (productQuantities[s.ProductName] || 0) + Number(s.Quantity || 0);
+  const cashSales = sales.reduce(function (sum, row) { return sum + toNumber(row.CashSales); }, 0);
+  const creditSales = sales.reduce(function (sum, row) { return sum + toNumber(row.CreditSales); }, 0);
+  const totalSales = cashSales + creditSales;
+  const month = normalizedDate.slice(0, 7);
+  const collections = getObjects(SHEETS.Collections.name);
+  const existing = collections.find(function (row) {
+    return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === normalizedDate;
   });
-  
-  let topSellingProduct = "N/A";
-  let maxQty = 0;
-  for (let prod in productQuantities) {
-    if (productQuantities[prod] > maxQty) {
-      maxQty = productQuantities[prod];
-      topSellingProduct = prod + " (" + maxQty + ")";
-    }
-  }
-  
-  // Return stats and logs for dashboard charts
+  const depositCash = existing ? toNumber(existing.DepositCash) : 0;
+  const depositLIPA = existing ? toNumber(existing.DepositLIPA) : 0;
+  const depositInBank = existing ? toNumber(existing.DepositInBank) : 0;
+  const efdZ = existing ? toNumber(existing.EFDZReport) : 0;
+  const actualCollection = roundNumber(depositCash + depositLIPA);
+  const variance = roundNumber(cashSales - actualCollection);
+  const bankDepositDifference = roundNumber(depositCash - depositInBank);
+  const salesVsEFD = roundNumber(totalSales - efdZ);
   return {
-    success: true,
+    CollectionID: existing ? existing.CollectionID : makeId("COL"),
+    ReportID: existing && existing.ReportID ? existing.ReportID : report ? report.ReportID : reportId || "",
+    ShopID: shopId,
+    ShopName: shop.ShopName || (existing ? existing.ShopName : ""),
+    Date: normalizedDate,
+    Month: month,
+    Day: dayName(date),
+    EmployeeID: existing && existing.EmployeeID ? existing.EmployeeID : employeeId || (report ? report.EmployeeID : ""),
+    EmployeeName: existing && existing.EmployeeName ? existing.EmployeeName : employeeName || (report ? report.EmployeeName : ""),
+    CashSales: cashSales,
+    CreditSales: creditSales,
+    TotalSales: totalSales,
+    DepositCash: depositCash,
+    DepositLIPA: depositLIPA,
+    ExpectedCollection: cashSales,
+    ActualCollection: actualCollection,
+    Variance: variance,
+    DepositInBank: depositInBank,
+    BankDepositDifference: bankDepositDifference,
+    DateOfDeposit: existing ? existing.DateOfDeposit : "",
+    EFDZReport: efdZ,
+    SalesVsEFD: salesVsEFD,
+    Name: existing ? existing.Name : "",
+    Signature: existing ? existing.Signature : "",
+    Remarks: existing ? existing.Remarks : "",
+    Status: existing && existing.Status ? existing.Status : "Draft",
+    AdminNote: existing ? existing.AdminNote : "",
+    SubmittedAt: existing ? existing.SubmittedAt : "",
+    UpdatedAt: existing ? existing.UpdatedAt : nowIso(),
+    ApprovedBy: existing ? existing.ApprovedBy : "",
+    ApprovedAt: existing ? existing.ApprovedAt : ""
+  };
+}
+
+function upsertCollection(shopId, date, reportId, employeeId, employeeName) {
+  const collections = getObjects(SHEETS.Collections.name);
+  const normalizedDate = normalizeDate(date);
+  const existing = collections.find(function (row) {
+    return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === normalizedDate;
+  });
+  const row = buildCollectionBase(shopId, normalizedDate, reportId, employeeId, employeeName);
+  row.UpdatedAt = nowIso();
+  if (existing) updateObjectById(SHEETS.Collections.name, "CollectionID", existing.CollectionID, row);
+  else appendObject(SHEETS.Collections.name, row);
+  return row;
+}
+
+function getReportBundle(data) {
+  const startDate = data.startDate || "";
+  const endDate = data.endDate || "";
+  const shopId = data.shopId || "";
+  const employeeId = data.employeeId || "";
+  const reports = getObjects(SHEETS.DailyReports.name)
+    .filter(function (report) { return inDateRange(report.Date, startDate, endDate); })
+    .filter(function (report) { return !shopId || String(report.ShopID) === String(shopId); })
+    .filter(function (report) { return !employeeId || String(report.EmployeeID) === String(employeeId); })
+    .map(enrichReport);
+  const reportIds = {};
+  reports.forEach(function (report) { reportIds[String(report.ReportID)] = true; });
+  return {
+    summaries: reports,
+    sales: getObjects(SHEETS.DailySalesEntries.name).filter(function (row) { return reportIds[String(row.ReportID)]; }).map(addEmployeeName),
+    stocks: getObjects(SHEETS.DailyStockEntries.name).filter(function (row) { return reportIds[String(row.ReportID)]; }).map(addEmployeeName),
+    creditSales: buildCreditSalesRows().filter(function (row) { return reportIds[String(row.ReportID)]; })
+  };
+}
+
+function handleGetMyReports(data) {
+  const reports = getObjects(SHEETS.DailyReports.name)
+    .filter(function (report) { return String(report.EmployeeID) === String(data.employeeId); })
+    .map(enrichReport)
+    .sort(function (a, b) { return String(b.SubmittedAt).localeCompare(String(a.SubmittedAt)); });
+  return { success: true, reports: reports };
+}
+
+function handleGetDashboard(data) {
+  const date = normalizeDate(data.date || new Date());
+  const month = data.month || date.slice(0, 7);
+  const shopId = data.shopId || "";
+  const sales = getObjects(SHEETS.DailySalesEntries.name)
+    .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
+    .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); });
+  const stocks = getObjects(SHEETS.DailyStockEntries.name)
+    .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
+    .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); });
+  const reports = getObjects(SHEETS.DailyReports.name)
+    .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
+    .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); })
+    .map(enrichReport);
+  const collections = getObjects(SHEETS.Collections.name)
+    .filter(function (row) { return String(row.Month) === String(month); })
+    .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); })
+    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)); });
+  const dateCollections = collections.filter(function (row) { return normalizeDate(row.Date) === date; });
+
+  const cashSales = sales.reduce(function (sum, row) { return sum + toNumber(row.CashSales); }, 0);
+  const creditSales = sales.reduce(function (sum, row) { return sum + toNumber(row.CreditSales); }, 0);
+  const depositCash = collections.reduce(function (sum, row) { return sum + toNumber(row.DepositCash); }, 0);
+  const depositLIPA = collections.reduce(function (sum, row) { return sum + toNumber(row.DepositLIPA); }, 0);
+  const mismatchRows = stocks.filter(function (row) { return toNumber(row.Mismatch) !== 0; });
+
+  const byDate = {};
+  sales.forEach(function (row) {
+    const key = normalizeDate(row.Date).slice(5);
+    if (!byDate[key]) byDate[key] = { name: key, cash: 0, credit: 0, total: 0, value: 0 };
+    byDate[key].cash += toNumber(row.CashSales);
+    byDate[key].credit += toNumber(row.CreditSales);
+    byDate[key].total += toNumber(row.TotalAmount);
+    byDate[key].value += toNumber(row.TotalAmount);
+  });
+
+  const byShop = {};
+  const byProduct = {};
+  const mismatchByProduct = {};
+  sales.forEach(function (row) {
+    byShop[row.ShopName] = (byShop[row.ShopName] || 0) + toNumber(row.TotalAmount);
+    byProduct[row.ProductName] = (byProduct[row.ProductName] || 0) + toNumber(row.TotalAmount);
+  });
+  mismatchRows.forEach(function (row) {
+    mismatchByProduct[row.ProductName] = (mismatchByProduct[row.ProductName] || 0) + Math.abs(toNumber(row.Mismatch));
+  });
+
+  const dateReports = reports.filter(function (row) { return normalizeDate(row.Date) === date; });
+  const dashboard = {
     stats: {
-      todayTotalSales: totalSales,
-      todayCashSales: cashSales,
-      todayCreditSales: creditSales,
-      submittedReportsCount: reportsCount,
-      stockMismatchCount: mismatchCount,
-      topSellingProduct: topSellingProduct
+      totalSales: cashSales + creditSales,
+      cashSales: cashSales,
+      creditSales: creditSales,
+      depositCash: depositCash,
+      depositLIPA: depositLIPA,
+      variance: collections.reduce(function (sum, row) { return sum + toNumber(row.Variance); }, 0),
+      efdDifference: collections.reduce(function (sum, row) { return sum + toNumber(row.SalesVsEFD); }, 0),
+      bankDepositDifference: collections.reduce(function (sum, row) { return sum + toNumber(row.BankDepositDifference); }, 0),
+      todayCashSales: dateCollections.reduce(function (sum, row) { return sum + toNumber(row.CashSales); }, 0),
+      todayLIPA: dateCollections.reduce(function (sum, row) { return sum + toNumber(row.DepositLIPA); }, 0),
+      todayBankDeposit: dateCollections.reduce(function (sum, row) { return sum + toNumber(row.DepositInBank); }, 0),
+      todayVariance: dateCollections.reduce(function (sum, row) { return sum + toNumber(row.Variance); }, 0),
+      pendingCollectionApprovals: collections.filter(function (row) { return row.Status === "Submitted" || row.Status === "Reopened"; }).length,
+      collectionsWithVariance: collections.filter(function (row) { return toNumber(row.Variance) !== 0; }).length,
+      collectionsMissingEFD: collections.filter(function (row) { return toNumber(row.EFDZReport) === 0; }).length,
+      bankDepositMismatches: collections.filter(function (row) { return toNumber(row.BankDepositDifference) !== 0; }).length,
+      stockMismatch: mismatchRows.length,
+      reportsSubmitted: dateReports.length,
+      pendingApprovals: reports.filter(function (row) { return row.Status === "Submitted" || row.Status === "Pending Approval"; }).length
     },
-    recentSummaries: todaySummaries
+    cashCreditSplit: [{ name: "Cash Sales", value: cashSales }, { name: "Credit Sales", value: creditSales }].filter(function (row) { return row.value > 0; }),
+    dailySalesTrend: Object.keys(byDate).sort().map(function (key) { return byDate[key]; }),
+    shopSalesComparison: Object.keys(byShop).map(function (key) { return { name: key, value: byShop[key] }; }),
+    topSellingProducts: Object.keys(byProduct).sort(function (a, b) { return byProduct[b] - byProduct[a]; }).slice(0, 6).map(function (key) { return { name: key, value: byProduct[key] }; }),
+    mismatchByProduct: Object.keys(mismatchByProduct).map(function (key) { return { name: key, value: mismatchByProduct[key], mismatch: mismatchByProduct[key] }; }),
+    todaySubmissions: dateReports.map(function (report) {
+      const totals = reportTotals(report.ReportID);
+      const collection = collections.find(function (row) { return String(row.ShopID) === String(report.ShopID) && normalizeDate(row.Date) === normalizeDate(report.Date); });
+      return {
+        ReportID: report.ReportID,
+        Shop: report.ShopName,
+        Employee: report.EmployeeName,
+        SalesTotal: totals.TotalSales,
+        StockStatus: totals.StockMismatch > 0 ? "Mismatch " + totals.StockMismatch : report.StockSubmitted === "Yes" ? "Matched" : "Not submitted",
+        CollectionStatus: collection ? collection.Status : "Draft",
+        ApprovalStatus: report.Status
+      };
+    }),
+    collectionSummary: collections,
+    stockMismatchRows: mismatchRows
   };
+  return { success: true, dashboard: dashboard, stats: dashboard.stats, recentSummaries: reports };
 }
 
-function handleGetReportsByDate(startDate, endDate, employeeId) {
-  const summaries = getSheetDataAsObjects(SHEETS.DailySummary.name);
-  const sales = getSheetDataAsObjects(SHEETS.DailySales.name);
-  const stocks = getSheetDataAsObjects(SHEETS.DailyStock.name);
-  const credits = getSheetDataAsObjects(SHEETS.CreditSales.name);
-  
-  const start = startDate ? new Date(startDate) : null;
-  const end = endDate ? new Date(endDate) : null;
-  
-  const filterFn = (item) => {
-    const itemDate = new Date(item.Date.split("T")[0]);
-    if (start && itemDate < start) return false;
-    if (end && itemDate > end) return false;
-    if (employeeId && item.EmployeeID !== employeeId) return false;
-    return true;
-  };
-  
-  return {
-    success: true,
-    summaries: summaries.filter(filterFn),
-    sales: sales.filter(filterFn),
-    stocks: stocks.filter(filterFn),
-    creditSales: credits.filter(filterFn)
-  };
+function handleGetDailySalesReport(data) {
+  const rows = getObjects(SHEETS.DailySalesEntries.name)
+    .filter(function (row) { return inDateRange(row.Date, data.startDate || "", data.endDate || ""); })
+    .filter(function (row) { return !data.shopId || String(row.ShopID) === String(data.shopId); })
+    .map(addEmployeeName);
+  return { success: true, sales: rows };
 }
 
-function handleGetEmployeeReports(employeeId) {
-  if (!employeeId) {
-    return { success: false, error: "Employee ID is required" };
-  }
-  const summaries = getSheetDataAsObjects(SHEETS.DailySummary.name);
-  const employeeSummaries = summaries.filter(s => s.EmployeeID === employeeId);
-  return { success: true, reports: employeeSummaries };
+function handleGetDailyStockReport(data) {
+  const rows = getObjects(SHEETS.DailyStockEntries.name)
+    .filter(function (row) { return inDateRange(row.Date, data.startDate || "", data.endDate || ""); })
+    .filter(function (row) { return !data.shopId || String(row.ShopID) === String(data.shopId); })
+    .map(addEmployeeName);
+  return { success: true, stocks: rows };
+}
+
+function filterCollections(data) {
+  const month = data.month || "";
+  const startDate = data.startDate || "";
+  const endDate = data.endDate || "";
+  const status = data.status || "";
+  const search = String(data.search || "").toLowerCase();
+  return getObjects(SHEETS.Collections.name)
+    .filter(function (row) { return !month || String(row.Month) === String(month); })
+    .filter(function (row) { return inDateRange(row.Date, startDate, endDate); })
+    .filter(function (row) { return !data.shopId || String(row.ShopID) === String(data.shopId); })
+    .filter(function (row) { return !status || String(row.Status) === String(status); })
+    .filter(function (row) {
+      return !search || String(row.EmployeeName || "").toLowerCase().indexOf(search) >= 0 || String(row.Name || "").toLowerCase().indexOf(search) >= 0;
+    })
+    .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)) || String(a.ShopName).localeCompare(String(b.ShopName)); });
+}
+
+function handleGetTodayCollection(data) {
+  const shopId = data.shopId || "";
+  const date = normalizeDate(data.date || new Date());
+  const existing = getObjects(SHEETS.Collections.name).find(function (row) {
+    return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) === date;
+  });
+  return { success: true, collection: existing || buildCollectionBase(shopId, date, data.reportId || "", data.employeeId || "", data.employeeName || "") };
+}
+
+function handleSubmitDailyCollection(data) {
+  if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
+  if (!data.signature) return { success: false, error: "Signature confirmation is required before submitting collection." };
+  const user = getObjects(SHEETS.Users.name).find(function (row) { return String(row.UserID) === String(data.employeeId); });
+  if (!user || user.Role !== "Employee" || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
+  if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return { success: false, error: "Employee can submit collection only for assigned shop." };
+
+  const date = normalizeDate(data.date);
+  let base = upsertCollection(data.shopId, date, data.reportId || "", data.employeeId, data.employeeName || getEmployeeName(data.employeeId));
+  const depositCash = toNumber(data.depositCash);
+  const depositLIPA = toNumber(data.depositLIPA);
+  const depositInBank = toNumber(data.depositInBank);
+  const efdZ = toNumber(data.efdZReport);
+  base.EmployeeID = data.employeeId;
+  base.EmployeeName = data.employeeName || getEmployeeName(data.employeeId);
+  base.DepositCash = depositCash;
+  base.DepositLIPA = depositLIPA;
+  base.ExpectedCollection = toNumber(base.CashSales);
+  base.ActualCollection = roundNumber(depositCash + depositLIPA);
+  base.Variance = roundNumber(toNumber(base.CashSales) - base.ActualCollection);
+  base.DepositInBank = depositInBank;
+  base.BankDepositDifference = roundNumber(depositCash - depositInBank);
+  base.DateOfDeposit = data.dateOfDeposit || "";
+  base.EFDZReport = efdZ;
+  base.SalesVsEFD = roundNumber(toNumber(base.TotalSales) - efdZ);
+  base.Name = data.name || base.EmployeeName;
+  base.Signature = data.signature;
+  base.Remarks = data.remarks || "";
+  base.Status = "Submitted";
+  base.SubmittedAt = nowIso();
+  base.UpdatedAt = nowIso();
+  base.ApprovedBy = "";
+  base.ApprovedAt = "";
+  updateObjectById(SHEETS.Collections.name, "CollectionID", base.CollectionID, base);
+  logAction(data.employeeId, "SUBMIT_COLLECTION", "Collection submitted for " + base.ShopName + " on " + date);
+  return { success: true, collection: base };
+}
+
+function handleGetCollections(data) {
+  return { success: true, collections: filterCollections(data) };
+}
+
+function handleGetMonthlyCollectionReport(data) {
+  const month = data.month || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM");
+  return { success: true, collections: filterCollections(Object.assign({}, data, { month: month })) };
+}
+
+function findCollection(data) {
+  return getObjects(SHEETS.Collections.name).find(function (item) {
+    if (data.collectionId) return String(item.CollectionID) === String(data.collectionId);
+    return String(item.ShopID) === String(data.shopId) && normalizeDate(item.Date) === normalizeDate(data.date);
+  });
+}
+
+function recalcCollection(row) {
+  row.ExpectedCollection = toNumber(row.CashSales);
+  row.ActualCollection = roundNumber(toNumber(row.DepositCash) + toNumber(row.DepositLIPA));
+  row.Variance = roundNumber(toNumber(row.CashSales) - row.ActualCollection);
+  row.BankDepositDifference = roundNumber(toNumber(row.DepositCash) - toNumber(row.DepositInBank));
+  row.SalesVsEFD = roundNumber(toNumber(row.TotalSales) - toNumber(row.EFDZReport));
+  row.UpdatedAt = nowIso();
+  return row;
+}
+
+function handleUpdateCollectionByAdmin(data) {
+  const row = findCollection(data);
+  if (!row) return { success: false, error: "Collection row not found." };
+  row.AdminNote = data.adminNote === undefined ? row.AdminNote : data.adminNote;
+  row.UpdatedAt = nowIso();
+  updateObjectById(SHEETS.Collections.name, "CollectionID", row.CollectionID, row);
+  return { success: true, collection: row };
+}
+
+function handleUpdateCollectionStatus(data, status) {
+  const row = findCollection(data);
+  if (!row) return { success: false, error: "Collection row not found." };
+  row.Status = status;
+  row.AdminNote = data.reason || data.adminNote || row.AdminNote || "";
+  row.ApprovedBy = status === "Approved" ? data.adminId || data.userId || "" : "";
+  row.ApprovedAt = status === "Approved" ? nowIso() : "";
+  row.UpdatedAt = nowIso();
+  updateObjectById(SHEETS.Collections.name, "CollectionID", row.CollectionID, row);
+  logAction(data.adminId || data.userId || "ADMIN", "COLLECTION_STATUS", "Collection " + row.CollectionID + " changed to " + status);
+  return { success: true, collection: row };
 }
 
 function handleUpdateReportStatus(reportId, status, adminId) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // 1. Update DailySummary Status
-  const summarySheet = ss.getSheetByName(SHEETS.DailySummary.name);
-  const summaryValues = summarySheet.getDataRange().getValues();
-  const summaryHeaders = summaryValues[0];
-  const summaryReportIdIdx = summaryHeaders.indexOf("ReportID");
-  const summaryStatusIdx = summaryHeaders.indexOf("Status");
-  
-  let summaryRow = -1;
-  for (let i = 1; i < summaryValues.length; i++) {
-    if (summaryValues[i][summaryReportIdIdx] === reportId) {
-      summaryRow = i + 1;
-      break;
-    }
+  if (!reportId) return { success: false, error: "Report ID is required." };
+  const patch = { Status: status };
+  if (status === "Approved") {
+    patch.ApprovedBy = adminId;
+    patch.ApprovedAt = nowIso();
   }
-  
-  if (summaryRow === -1) {
-    return { success: false, error: "Report summary not found" };
-  }
-  
-  summarySheet.getRange(summaryRow, summaryStatusIdx + 1).setValue(status);
-  
-  // 2. Sync to CreditSales Status if there are credit entries for this report
-  const creditSheet = ss.getSheetByName(SHEETS.CreditSales.name);
-  if (creditSheet && creditSheet.getLastRow() > 1) {
-    const creditValues = creditSheet.getDataRange().getValues();
-    const creditHeaders = creditValues[0];
-    const creditReportIdIdx = creditHeaders.indexOf("ReportID");
-    const creditStatusIdx = creditHeaders.indexOf("Status");
-    
-    for (let j = 1; j < creditValues.length; j++) {
-      if (creditValues[j][creditReportIdIdx] === reportId) {
-        creditSheet.getRange(j + 1, creditStatusIdx + 1).setValue(status);
-      }
-    }
-  }
-  
-  logAction(adminId || "ADMIN", "REPORT_STATUS_CHANGE", "Report " + reportId + " status updated to: " + status);
+  const ok = updateObjectById(SHEETS.DailyReports.name, "ReportID", reportId, patch);
+  if (!ok) return { success: false, error: "Report not found." };
+  logAction(adminId || "ADMIN", "REPORT_STATUS", "Report " + reportId + " changed to " + status);
   return { success: true };
+}
+
+function handleGetStockMismatchReport(data) {
+  const rows = getObjects(SHEETS.DailyStockEntries.name)
+    .filter(function (row) { return toNumber(row.Mismatch) !== 0; })
+    .filter(function (row) { return inDateRange(row.Date, data.startDate || "", data.endDate || ""); })
+    .filter(function (row) { return !data.shopId || String(row.ShopID) === String(data.shopId); })
+    .map(addEmployeeName);
+  return { success: true, stocks: rows };
+}
+
+function buildCreditSalesRows() {
+  const reports = getObjects(SHEETS.DailyReports.name);
+  const statusByReport = {};
+  reports.forEach(function (report) { statusByReport[String(report.ReportID)] = report.Status; });
+  return getObjects(SHEETS.DailySalesEntries.name)
+    .filter(function (row) { return row.SaleType === "Credit"; })
+    .map(function (row) {
+      return {
+        EntryID: row.EntryID,
+        ReportID: row.ReportID,
+        ShopID: row.ShopID,
+        ShopName: row.ShopName,
+        Date: row.Date,
+        EmployeeID: row.EmployeeID,
+        EmployeeName: getEmployeeName(row.EmployeeID),
+        CustomerName: row.CustomerName,
+        ProductName: row.ProductName,
+        Amount: row.CreditSales,
+        EFDNumber: row.EFDNumber,
+        Status: statusByReport[String(row.ReportID)] || "Submitted",
+        CreatedAt: row.CreatedAt
+      };
+    });
+}
+
+function handleGetCreditSalesReport(data) {
+  const rows = buildCreditSalesRows()
+    .filter(function (row) { return inDateRange(row.Date, data.startDate || "", data.endDate || ""); })
+    .filter(function (row) { return !data.shopId || String(row.ShopID) === String(data.shopId); });
+  return { success: true, creditSales: rows };
+}
+
+function handleSubmitLiveWeight(data) {
+  if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
+  const user = getObjects(SHEETS.Users.name).find(function (row) { return String(row.UserID) === String(data.employeeId); });
+  if (!user || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
+
+  const date = normalizeDate(data.date);
+  const now = nowIso();
+  const shop = findShop(data.shopId) || {};
+  
+  const totalBirds = toNumber(data.totalBirds);
+  const netWeight = toNumber(data.netLiveWeightKG);
+  const avgWeight = totalBirds > 0 ? roundNumber(netWeight / totalBirds) : 0;
+  
+  const liveWeightId = makeId("LW");
+  const obj = {
+    LiveWeightID: liveWeightId,
+    ShopID: data.shopId,
+    ShopName: shop.ShopName || "",
+    Date: date,
+    Crates: toNumber(data.crates),
+    TotalBirds: totalBirds,
+    NetLiveWeightKG: netWeight,
+    AvgLiveWeightKG: avgWeight,
+    DOA: toNumber(data.doa),
+    InjuredBirds: toNumber(data.injuredBirds),
+    Shortage: toNumber(data.shortage),
+    NetAcceptedBirds: toNumber(data.netAcceptedBirds),
+    CreatedAt: now
+  };
+  
+  appendObject(SHEETS.LiveWeight.name, obj);
+  logAction(data.employeeId, "SUBMIT_LIVE_WEIGHT", "Live weight record " + liveWeightId + " submitted for " + (shop.ShopName || data.shopId) + " on " + date);
+  return { success: true, liveWeight: obj };
 }

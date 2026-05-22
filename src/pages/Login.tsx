@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { KeyRound, Phone, AlertCircle, LogIn, Cpu } from "lucide-react";
+import { AlertCircle, KeyRound, LogIn, Phone } from "lucide-react";
 import { appsScriptClient, isMockMode } from "../api/appsScriptClient";
 
 export const Login: React.FC = () => {
@@ -9,124 +9,113 @@ export const Login: React.FC = () => {
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [mockActive] = useState(isMockMode());
+  const mockActive = isMockMode();
 
   useEffect(() => {
-    // Check if session already exists
     const session = localStorage.getItem("session_user");
-    if (session) {
-      try {
-        const user = JSON.parse(session);
-        if (user.role === "Admin") {
-          navigate("/admin/dashboard");
-        } else {
-          navigate("/employee/dashboard");
-        }
-      } catch {
-        localStorage.removeItem("session_user");
-      }
+    if (!session) return;
+    try {
+      const user = JSON.parse(session);
+      navigate(user.role === "Admin" ? "/admin/dashboard" : "/employee/dashboard", { replace: true });
+    } catch {
+      localStorage.removeItem("session_user");
     }
   }, [navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError("");
-    
-    if (!phone || !pin) {
-      setError("Please enter both phone number and PIN");
+    if (!phone.trim() || !pin.trim()) {
+      setError("Enter both phone number and PIN.");
       return;
     }
 
     setLoading(true);
     try {
-      const response = await appsScriptClient.login(phone, pin);
-      
+      const response = await appsScriptClient.login(phone.trim(), pin.trim());
       if (response.success && response.user) {
         localStorage.setItem("session_user", JSON.stringify(response.user));
-        
-        if (response.user.role === "Admin") {
-          navigate("/admin/dashboard");
-        } else {
-          navigate("/employee/dashboard");
-        }
+        navigate(response.user.role === "Admin" ? "/admin/dashboard" : "/employee/dashboard", { replace: true });
       } else {
-        setError(response.error || "Authentication failed. Invalid phone or PIN.");
+        setError(response.error || "Invalid phone or PIN.");
       }
-    } catch (err) {
-      setError("Network error. Please try again later.");
-      console.error(err);
+    } catch (loginError) {
+      console.error(loginError);
+      setError("Login failed. Check the Apps Script URL and try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-secondary px-4 py-12 sm:px-6 lg:px-8 relative overflow-hidden">
-      {/* Dynamic Background Gradients */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-primary/10 rounded-full blur-[120px] pointer-events-none"></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
-
-      <div className="w-full max-w-md space-y-8 relative z-10">
-        <div className="flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-primary to-indigo-400 text-white font-black text-2xl shadow-xl shadow-primary/20 animate-bounce">
-            O
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-6 sm:px-6 lg:px-8">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-2xl border border-border bg-card shadow-lg lg:grid-cols-[1fr_420px]">
+        {/* Left column (Desktop only illustration) */}
+        <div className="hidden bg-slate-900 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+          <div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white text-xl font-black text-slate-900">O</div>
+            <h1 className="mt-8 max-w-md text-3xl font-black leading-tight">OptiFirst TZ daily sales, stock, and collection reporting</h1>
+            <p className="mt-4 max-w-md text-sm leading-6 text-slate-300">
+              Employees submit one daily report per shop. Admin reviews sales, deposits, EFD variance, credit sales, and stock mismatches from one dashboard.
+            </p>
           </div>
-          <h2 className="mt-6 text-3xl font-extrabold tracking-tight text-foreground">
-            OptiFirst POS
-          </h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Daily Sales and Stock reporting system
-          </p>
+          <p className="text-xs text-slate-400">Google Sheets database + Apps Script API</p>
         </div>
 
-        <div className="bg-card border border-border/80 rounded-2xl p-8 shadow-xl">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {error && (
-              <div className="flex items-center space-x-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive border border-destructive/20 animate-shake">
-                <AlertCircle className="h-5 w-5 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+        {/* Right column (Login Form) */}
+        <div className="p-6 sm:p-10 flex flex-col justify-center">
+          <div className="mb-7">
+            <div className="flex items-center gap-2 lg:hidden">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-base font-black text-white">O</div>
+              <span className="text-base font-black tracking-tight text-foreground">OptiFirst TZ</span>
+            </div>
+            <h2 className="mt-5 text-2xl font-black tracking-tight">Sign in</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Use your phone number and PIN.</p>
+          </div>
 
+          {error && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="phone" className="block text-sm font-semibold text-foreground/80 mb-2">
+              <label htmlFor="phone" className="mb-1.5 block text-sm font-semibold">
                 Phone Number
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted-foreground">
-                  <Phone className="h-5 w-5" />
-                </div>
+                <Phone className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
                 <input
                   id="phone"
-                  name="phone"
                   type="tel"
-                  required
+                  autoComplete="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2.5 rounded-xl border border-input bg-background text-foreground text-sm placeholder-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                  placeholder="+1234567890"
+                  onChange={(event) => setPhone(event.target.value)}
+                  className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="+255700000000"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="pin" className="block text-sm font-semibold text-foreground/80 mb-2">
-                Secure PIN
+              <label htmlFor="pin" className="mb-1.5 block text-sm font-semibold">
+                PIN
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-muted-foreground">
-                  <KeyRound className="h-5 w-5" />
-                </div>
+                <KeyRound className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
                 <input
                   id="pin"
-                  name="pin"
                   type="password"
-                  required
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="current-password"
                   value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-2.5 rounded-xl border border-input bg-background text-foreground text-sm placeholder-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
-                  placeholder="PIN"
-                  maxLength={6}
+                  onChange={(event) => setPin(event.target.value)}
+                  className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="4 digit PIN"
+                  maxLength={8}
                 />
               </div>
             </div>
@@ -134,44 +123,25 @@ export const Login: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center space-x-2 py-3 px-4 border border-transparent rounded-xl text-sm font-semibold text-primary-foreground bg-primary hover:bg-primary/95 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary/20 hover:shadow-primary/30"
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-60 hover:bg-primary/95 transition-colors"
             >
-              {loading ? (
-                <>
-                  <div className="h-4 w-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
-                  <span>Signing In...</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="h-5 w-5" />
-                  <span>Sign In</span>
-                </>
-              )}
+              {loading ? <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" /> : <LogIn className="h-4 w-4" />}
+              Sign In
             </button>
           </form>
 
           {mockActive && (
-            <div className="mt-6 border-t border-border pt-4">
-              <div className="flex items-center space-x-2 text-xs text-muted-foreground justify-center bg-secondary/50 py-2 rounded-lg border border-border/50">
-                <Cpu className="h-4 w-4 text-primary" />
-                <span><strong>Developer Notice:</strong> Mock Mode is active.</span>
-              </div>
-              <div className="mt-3 text-center space-y-1">
-                <p className="text-[10px] text-muted-foreground">Quick login info (click to fill):</p>
-                <div className="flex justify-center space-x-2">
-                  <button 
-                    onClick={() => { setPhone("+1234567890"); setPin("1234"); }}
-                    className="text-[10px] text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
-                  >
-                    Admin (+1234567890 / 1234)
-                  </button>
-                  <button 
-                    onClick={() => { setPhone("+1234567891"); setPin("5678"); }}
-                    className="text-[10px] text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
-                  >
-                    Employee (+1234567891 / 5678)
-                  </button>
-                </div>
+            <div className="mt-6 rounded-xl border border-border bg-secondary/35 p-4">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Quick Mock Accounts</p>
+              <div className="mt-2.5 grid gap-2 text-xs sm:grid-cols-2">
+                <button type="button" onClick={() => { setPhone("+255700000000"); setPin("1234"); }} className="rounded-lg border border-border/80 bg-card px-3 py-2.5 text-left font-semibold hover:border-primary/50 transition-colors shadow-sm">
+                  <span className="block font-black text-foreground">Admin</span>
+                  <span className="text-muted-foreground text-[10px] font-medium">+255700000000 / 1234</span>
+                </button>
+                <button type="button" onClick={() => { setPhone("+255700000101"); setPin("1111"); }} className="rounded-lg border border-border/80 bg-card px-3 py-2.5 text-left font-semibold hover:border-primary/50 transition-colors shadow-sm">
+                  <span className="block font-black text-foreground">Employee</span>
+                  <span className="text-muted-foreground text-[10px] font-medium">+255700000101 / 1111</span>
+                </button>
               </div>
             </div>
           )}
@@ -180,4 +150,5 @@ export const Login: React.FC = () => {
     </div>
   );
 };
+
 export default Login;

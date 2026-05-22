@@ -29,7 +29,7 @@ export const StepProgress: React.FC<StepProgressProps> = ({ steps, currentStep }
         </div>
       </div>
 
-      <div className="hidden grid-cols-4 gap-2 sm:grid">
+      <div className="hidden gap-2 sm:grid" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
         {steps.map((label, index) => {
           const stepNumber = index + 1;
           const isActive = currentStep === stepNumber;
