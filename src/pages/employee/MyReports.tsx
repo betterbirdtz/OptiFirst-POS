@@ -1,6 +1,6 @@
 import React, { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, RefreshCw, Edit2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { ClipboardList, ArrowLeft, RefreshCw, Edit2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { DailySalesEntry, DailyStockEntry, DailySummaryEntry, UserSession } from "../../types";
 import { formatDateForDisplay, formatDateTimeForDisplay, getLocalDateInputValue } from "../../utils/date";

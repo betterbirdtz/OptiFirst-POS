@@ -973,7 +973,7 @@ function getDashboard(data: ApiData): DashboardData {
     collectionSummary: monthCollections,
     stockMismatchRows: mismatchRows,
     allSales: monthSales
-  };
+  } as DashboardData & { allSales: typeof monthSales };
 }
 
 function updateReportStatus(reportId: string, status: ReportStatus, adminId: string): ApiResponse {

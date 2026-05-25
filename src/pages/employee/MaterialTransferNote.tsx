@@ -100,12 +100,12 @@ export const MaterialTransferNote: React.FC = () => {
     }));
   };
 
-  const addRow = (section: "dest") => {
+  const addRow = () => {
     const newItem: VoucherItem = { itemName: "", location: selectedShop?.ShopName || "", quantity: 0, rate: 0, amount: 0 };
     setDestItems((c) => [...c, newItem]);
   };
 
-  const removeRow = (section: "dest", index: number) => {
+  const removeRow = (index: number) => {
     setDestItems((current) => current.filter((_, i) => i !== index));
   };
 
@@ -289,7 +289,7 @@ export const MaterialTransferNote: React.FC = () => {
                 <h2 className="text-sm font-black">Destination (Production)</h2>
                 <p className="text-[10px] text-muted-foreground">Enter quantity actually received at shop.</p>
               </div>
-              <button type="button" onClick={() => addRow("dest")} className="flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-bold active:bg-secondary"><Plus className="h-3 w-3" />Row</button>
+              <button type="button" onClick={() => addRow()} className="flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-bold active:bg-secondary"><Plus className="h-3 w-3" />Row</button>
             </div>
 
             {/* Mobile card view */}
@@ -301,7 +301,7 @@ export const MaterialTransferNote: React.FC = () => {
                       <option value="">Select Product</option>
                       {products.map((p) => <option key={p.ProductID} value={p.ProductName}>{p.ProductName}</option>)}
                     </select>
-                    <button type="button" onClick={() => removeRow("dest", i)} className="rounded-lg p-2.5 text-muted-foreground active:bg-destructive/10 active:text-destructive"><Trash2 className="h-4 w-4" /></button>
+                    <button type="button" onClick={() => removeRow(i)} className="rounded-lg p-2.5 text-muted-foreground active:bg-destructive/10 active:text-destructive"><Trash2 className="h-4 w-4" /></button>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
@@ -355,7 +355,7 @@ export const MaterialTransferNote: React.FC = () => {
                         <input type="number" min="0" step="0.01" inputMode="decimal" value={item.rate || ""} onChange={(e) => updateItem("dest", i, "rate", Number(e.target.value || 0))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none" placeholder="0" />
                       </td>
                       <td className="p-2 text-right text-xs font-black">{item.amount > 0 ? item.amount.toLocaleString() : "-"}</td>
-                      <td className="p-1"><button type="button" onClick={() => removeRow("dest", i)} className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                      <td className="p-1"><button type="button" onClick={() => removeRow(i)} className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
                     </tr>
                   ))}
                 </tbody>
