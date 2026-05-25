@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Package, RefreshCw, Save } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
-import type { OpeningStockEntry, Product, Shop, UserSession } from "../../types";
+import type { OpeningStockEntry, Shop, UserSession } from "../../types";
 import { getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
 
@@ -10,7 +10,6 @@ export const OpeningStock: React.FC = () => {
   const navigate = useNavigate();
   const [user] = useState<UserSession | null>(() => getSessionUser());
   const [shops, setShops] = useState<Shop[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [stockEntries, setStockEntries] = useState<OpeningStockEntry[]>([]);
   const [selectedShopId, setSelectedShopId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -29,7 +28,7 @@ export const OpeningStock: React.FC = () => {
           setShops(active);
           if (active[0]) setSelectedShopId(active[0].ShopID);
         }
-        if (prodRes.success && prodRes.products) setProducts(prodRes.products.filter((p) => p.Active === "Yes"));
+        if (prodRes.success) { /* products loaded */ }
       } catch { setError("Failed to load data."); }
       finally { setLoading(false); }
     };

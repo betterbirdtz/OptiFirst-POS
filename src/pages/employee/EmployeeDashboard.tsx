@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PlusCircle, FileText, ClipboardList, Clock, AlertTriangle, ArrowRight, LogOut, WalletCards, Boxes, Pencil } from "lucide-react";
+import { PlusCircle, FileText, ClipboardList, AlertTriangle, ArrowRight, LogOut, WalletCards, Boxes, Pencil } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { UserSession, DailySummaryEntry, CollectionEntry } from "../../types";
 import { formatCurrency } from "../../utils/calculations";

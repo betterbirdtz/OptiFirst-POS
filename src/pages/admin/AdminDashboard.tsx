@@ -441,7 +441,7 @@ export const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
-                    {rateDiffRows.map((row, i) => (
+                    {rateDiffRows.map((row: { date: string; shopName: string; employeeName: string; productName: string; adminRate: number; employeeRate: number; diff: number; qty: number; impact: number }, i: number) => (
                       <tr key={i} className="hover:bg-amber-50/30">
                         <td className="p-3 font-semibold">{formatDateForDisplay(row.date)}</td>
                         <td className="p-3">{row.shopName}</td>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, CheckCircle2, ClipboardList, Plus, Send, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, CheckCircle2, Plus, Send, Trash2 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { Product, Shop, UserSession } from "../../types";
 import { getLocalDateInputValue } from "../../utils/date";

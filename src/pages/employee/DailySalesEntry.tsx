@@ -24,9 +24,6 @@ export const DailySalesEntry: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [salesEntries, setSalesEntries] = useState<SalesSubmissionItem[]>([]);
 
-  const [selectedProductId, setSelectedProductId] = useState("");
-  const [productSearch, setProductSearch] = useState("");
-
   const [bulkRows, setBulkRows] = useState<Array<{ checked: boolean; productId: string; quantity: string; rate: string; saleType: "Cash" | "Credit"; paymentMode: string; customerName: string }>>([]);
 
   const [loading, setLoading] = useState(true);

@@ -1391,24 +1391,21 @@ export const appsScriptClient = {
   // After login, sync all data from server to local storage
   syncAfterLogin: async (userId: string, shopId: string): Promise<void> => {
     const url = (import.meta.env.VITE_APPS_SCRIPT_URL || "").trim();
-    if (!url) return; // mock mode, no need to sync
+    if (!url) return;
     try {
-      // Pull products, shops, employee reports, opening stock in parallel
-      const [shopsRes, productsRes, reportsRes, stockRes] = await Promise.all([
+      await Promise.all([
         callApi("getShops"),
         callApi("getProducts"),
         callApi("getMyReports", { employeeId: userId }),
         callApi("getOpeningStock", { shopId, employeeId: userId })
       ]);
-      // These are now cached in memory + will be available instantly
-      // Also pull today's sales/stock if any exist on server
       const today = getLocalDateInputValue();
       await Promise.all([
         callApi("getDailySalesReport", { shopId, startDate: today, endDate: today }),
         callApi("getDailyStockReport", { shopId, startDate: today, endDate: today }),
         callApi("getTodayCollection", { shopId, date: today })
       ]);
-    } catch { /* silent - best effort sync */ }
+    } catch { /* silent */ }
   },
   getShops: () => callApi("getShops"),
   createShop: (shopData: { shopName: string; location: string; inchargeName: string; inchargeContact: string; status: string }) =>
