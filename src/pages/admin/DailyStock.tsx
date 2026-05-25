@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Boxes, FileDown, FileSpreadsheet, RefreshCw } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
-import type { DailyStockEntry, Shop, UserSession } from "../../types";
+import type { DailyStockEntry, Shop, User, UserSession } from "../../types";
 import { formatDateForDisplay, getDateRangeLabel, getLocalDateInputValue } from "../../utils/date";
 import { exportToExcel } from "../../utils/exportExcel";
 import { exportPaperReportToPdf } from "../../utils/exportPdf";
@@ -16,11 +16,61 @@ export const DailyStock: React.FC = () => {
   const [startDate, setStartDate] = useState(getLocalDateInputValue());
   const [endDate, setEndDate] = useState(getLocalDateInputValue());
   const [stocks, setStocks] = useState<DailyStockEntry[]>([]);
+  const [employees, setEmployees] = useState<User[]>([]);
+  const [employeeId, setEmployeeId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [mismatchOnly, setMismatchOnly] = useState(false);
 
   const selectedShop = shops.find((shop) => shop.ShopID === shopId);
-  const totals = useMemo(() => getStockTotals(stocks), [stocks]);
+  const employeeFiltered = employeeId ? stocks.filter((s) => s.EmployeeID === employeeId) : stocks;
+  const filteredStocks = mismatchOnly ? employeeFiltered.filter((s) => s.Mismatch !== 0) : employeeFiltered;
+  const totals = useMemo(() => getStockTotals(employeeFiltered), [employeeFiltered]);
+
+  // Mismatch grouped by employee
+  const mismatchByEmployee = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; items: DailyStockEntry[] }>();
+    employeeFiltered.filter((s) => s.Mismatch !== 0).forEach((s) => {
+      const key = s.EmployeeID;
+      const existing = map.get(key) || { name: s.EmployeeName || s.EmployeeID, count: 0, items: [] };
+      existing.count++;
+      existing.items.push(s);
+      map.set(key, existing);
+    });
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [employeeFiltered]);
+
+  // MTN mismatches (from employee MTN receipts)
+  const mtnMismatches = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("opti_mtns");
+      if (!raw) return [];
+      const mtns = JSON.parse(raw) as Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: Array<{ itemName: string; quantity: number }>; complaintNote: string }>;
+      const adminRaw = localStorage.getItem("opti_mtn_source");
+      const adminMtns = adminRaw ? JSON.parse(adminRaw) as Array<{ mtnNo: string; mtnDate: string; toShopName: string; items: Array<{ itemName: string; quantity: number }> }> : [];
+
+      const results: Array<{ mtnNo: string; date: string; shop: string; product: string; sent: number; received: number; diff: number; complaint: string }> = [];
+
+      mtns.forEach((empMtn) => {
+        // Find matching admin MTN
+        const adminMtn = adminMtns.find((a) => a.mtnNo === empMtn.mtnNo);
+        if (!adminMtn) return;
+
+        empMtn.items.forEach((empItem) => {
+          if (empItem.quantity <= 0) return;
+          const adminItem = adminMtn.items.find((a) => a.itemName === empItem.itemName);
+          const sent = adminItem?.quantity || 0;
+          const received = empItem.quantity;
+          if (sent > 0 && sent !== received) {
+            results.push({ mtnNo: empMtn.mtnNo, date: empMtn.mtnDate, shop: empMtn.to, product: empItem.itemName, sent, received, diff: received - sent, complaint: empMtn.complaintNote || "" });
+          }
+        });
+      });
+
+      // Filter by date range
+      return results.filter((r) => r.date >= startDate && r.date <= endDate);
+    } catch { return []; }
+  }, [startDate, endDate]);
 
   const loadStocks = useCallback(async () => {
     setLoading(true);
@@ -33,6 +83,8 @@ export const DailyStock: React.FC = () => {
       if (shopsResponse.success && shopsResponse.shops) setShops(shopsResponse.shops);
       if (stockResponse.success && stockResponse.stocks) setStocks(stockResponse.stocks);
       else setError(stockResponse.error || "Failed to load stock report.");
+      const empRes = await appsScriptClient.getEmployees();
+      if (empRes.success && empRes.employees) setEmployees(empRes.employees);
     } catch (loadError) {
       console.error(loadError);
       setError("Network error loading stock report.");
@@ -121,7 +173,85 @@ export const DailyStock: React.FC = () => {
         </div>
       </div>
 
-      <Filters shops={shops} shopId={shopId} setShopId={setShopId} startDate={startDate} setStartDate={setStartDate} endDate={endDate} setEndDate={setEndDate} />
+      <Filters shops={shops} shopId={shopId} setShopId={setShopId} startDate={startDate} setStartDate={setStartDate} endDate={endDate} setEndDate={setEndDate} employees={employees} employeeId={employeeId} setEmployeeId={setEmployeeId} />
+
+      {/* Mismatch toggle */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-bold cursor-pointer select-none hover:bg-secondary">
+          <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} className="h-4 w-4 rounded border-input text-primary focus:ring-ring" />
+          Show Mismatch Only
+        </label>
+        {totals.mismatchCount > 0 && <span className="rounded-full bg-red-100 border border-red-200 px-3 py-1 text-xs font-black text-red-700">{totals.mismatchCount} mismatches</span>}
+      </div>
+
+      {/* Mismatch by Employee Summary */}
+      {mismatchByEmployee.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-card shadow-sm overflow-hidden">
+          <div className="border-b border-red-200 bg-red-50 p-4">
+            <h2 className="text-sm font-black text-red-800">⚠ Stock Mismatch by Employee</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-red-50/50 text-red-800 border-b border-red-200">
+                <tr>
+                  <th className="p-3 font-bold">Employee</th>
+                  <th className="p-3 font-bold text-right">Mismatch Count</th>
+                  <th className="p-3 font-bold">Products</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {mismatchByEmployee.map((emp) => (
+                  <tr key={emp.name} className="hover:bg-red-50/30">
+                    <td className="p-3 font-bold">{emp.name}</td>
+                    <td className="p-3 text-right font-black text-red-700">{emp.count}</td>
+                    <td className="p-3 text-muted-foreground">{emp.items.map((i) => `${i.ProductName} (${i.Mismatch > 0 ? "+" : ""}${i.Mismatch})`).join(", ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* MTN Receipt Mismatch */}
+      {mtnMismatches.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-card shadow-sm overflow-hidden">
+          <div className="border-b border-amber-200 bg-amber-50 p-4">
+            <h2 className="text-sm font-black text-amber-800">⚠ MTN Receipt Mismatch (Sent vs Received)</h2>
+            <p className="text-[10px] text-amber-700 mt-0.5">Items where employee received different quantity than what was sent from HO.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-amber-50/50 text-amber-800 border-b border-amber-200">
+                <tr>
+                  <th className="p-3 font-bold">MTN No</th>
+                  <th className="p-3 font-bold">Date</th>
+                  <th className="p-3 font-bold">Shop</th>
+                  <th className="p-3 font-bold">Product</th>
+                  <th className="p-3 font-bold text-right">Sent</th>
+                  <th className="p-3 font-bold text-right">Received</th>
+                  <th className="p-3 font-bold text-right">Shortage</th>
+                  <th className="p-3 font-bold">Complaint</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {mtnMismatches.map((m, i) => (
+                  <tr key={i} className="hover:bg-amber-50/30">
+                    <td className="p-3 font-bold font-mono">{m.mtnNo}</td>
+                    <td className="p-3">{formatDateForDisplay(m.date)}</td>
+                    <td className="p-3">{m.shop}</td>
+                    <td className="p-3 font-bold">{m.product}</td>
+                    <td className="p-3 text-right font-semibold">{m.sent}</td>
+                    <td className="p-3 text-right font-bold">{m.received}</td>
+                    <td className={`p-3 text-right font-black ${m.diff < 0 ? "text-red-700" : "text-green-700"}`}>{m.diff > 0 ? "+" : ""}{m.diff}</td>
+                    <td className="p-3 text-muted-foreground max-w-[200px] truncate">{m.complaint || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-border bg-card p-4">
         <p className="text-xs font-black uppercase text-primary">OPTIFIRST TZ LIMITED</p>
@@ -156,7 +286,7 @@ export const DailyStock: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {stocks.map((stock) => (
+                  {filteredStocks.map((stock) => (
                     <tr key={stock.EntryID} className="hover:bg-secondary/30">
                       <td className="p-3 font-bold">{formatDateForDisplay(stock.Date)}</td>
                       <td className="p-3">{stock.ShopName}</td>

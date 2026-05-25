@@ -153,7 +153,7 @@ export const Reports: React.FC = () => {
             <FileCheck className="h-5 w-5 text-primary" />
             Reports and Approvals
           </h1>
-          <p className="text-xs text-muted-foreground">Filter, inspect, approve, reopen, and export all report data.</p>
+          <p className="text-xs text-muted-foreground">View submitted reports. Click "Inspect" to see details and Approve / Reject / Reopen.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -229,13 +229,33 @@ export const Reports: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      <button
-                        onClick={() => setSelectedReport(summary)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-bold hover:bg-secondary"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Inspect
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        {(summary.Status === "Submitted" || summary.Status === "Pending Approval") && (
+                          <>
+                            <button
+                              onClick={() => updateStatus(summary.ReportID, "approve")}
+                              className="rounded-md bg-green-600 p-1.5 text-white hover:bg-green-700"
+                              title="Approve"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => updateStatus(summary.ReportID, "reject")}
+                              className="rounded-md bg-red-600 p-1.5 text-white hover:bg-red-700"
+                              title="Reject"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => setSelectedReport(summary)}
+                          className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-secondary"
+                          title="View details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -281,12 +301,12 @@ export const Reports: React.FC = () => {
               </div>
             </div>
 
-            {selectedReport.Status === "Pending Approval" ? (
+            {(selectedReport.Status === "Pending Approval" || selectedReport.Status === "Submitted") ? (
               <div className="grid grid-cols-3 gap-2 border-t border-border pt-4">
                 <button
                   onClick={() => updateStatus(selectedReport.ReportID, "reject")}
                   disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/10 py-2 text-xs font-bold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/10 py-3 text-xs font-bold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50"
                 >
                   <X className="h-4 w-4" />
                   Reject
@@ -294,7 +314,7 @@ export const Reports: React.FC = () => {
                 <button
                   onClick={() => updateStatus(selectedReport.ReportID, "reopen")}
                   disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-amber-500/10 py-2 text-xs font-bold text-amber-700 hover:bg-amber-500 hover:text-white disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-amber-500/10 py-3 text-xs font-bold text-amber-700 hover:bg-amber-500 hover:text-white disabled:opacity-50"
                 >
                   <AlertTriangle className="h-4 w-4" />
                   Reopen
@@ -302,7 +322,7 @@ export const Reports: React.FC = () => {
                 <button
                   onClick={() => updateStatus(selectedReport.ReportID, "approve")}
                   disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-600 py-2 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-600 py-3 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50"
                 >
                   <Check className="h-4 w-4" />
                   Approve

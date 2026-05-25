@@ -35,6 +35,12 @@ export const Login: React.FC = () => {
       const response = await appsScriptClient.login(phone.trim(), pin.trim());
       if (response.success && response.user) {
         localStorage.setItem("session_user", JSON.stringify(response.user));
+        // Sync all data from server to this device before navigating
+        if (response.user.role === "Employee") {
+          try {
+            await appsScriptClient.syncAfterLogin(response.user.employeeId, response.user.shopId || "");
+          } catch { /* best effort */ }
+        }
         navigate(response.user.role === "Admin" ? "/admin/dashboard" : "/employee/dashboard", { replace: true });
       } else {
         setError(response.error || "Invalid phone or PIN.");

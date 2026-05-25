@@ -209,6 +209,7 @@ export interface SalesSubmissionItem {
   quantity: number;
   rate: number;
   saleType: SaleType;
+  paymentMode?: string;
   customerName?: string;
   efdNumber?: string;
 }
@@ -330,4 +331,47 @@ export interface EmployeeSummaryRow {
   CashSales: number;
   CreditSales: number;
   StockMismatch: number;
+}
+
+export type MTNStatus = "Draft" | "Submitted" | "Approved" | "Rejected";
+
+export interface MTNItem {
+  productId: string;
+  productName: string;
+  category: string;
+  uom: string;
+  qtyAsPerMTN: number;
+  qtyReceived: number;
+  variance: number;
+}
+
+export interface MTNEntry {
+  MTNID: string;
+  MTNNo: string;
+  MTNDate: string;
+  From: string;
+  To: string;
+  ShopID: string;
+  ShopName: string;
+  EmployeeID: string;
+  EmployeeName: string;
+  Items: MTNItem[];
+  TotalVariance: number;
+  Status: MTNStatus;
+  AdminNote: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+
+export interface MTNSubmission {
+  mtnId?: string;
+  mtnNo: string;
+  mtnDate: string;
+  from: string;
+  to: string;
+  shopId: string;
+  shopName: string;
+  employeeId: string;
+  employeeName: string;
+  items: MTNItem[];
 }

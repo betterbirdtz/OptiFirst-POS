@@ -31,13 +31,13 @@ const adminLinks: NavigationItem[] = [
   { to: "/admin/dashboard", label: "Dashboard", shortLabel: "Home", icon: BarChart3 },
   { to: "/admin/shops", label: "Shops", shortLabel: "Shops", icon: Building2 },
   { to: "/admin/employees", label: "Employees", shortLabel: "Staff", icon: Users },
-  { to: "/admin/products", label: "Products", shortLabel: "Items", icon: Package },
+  { to: "/admin/products", label: "Products & Pricing", shortLabel: "Items", icon: Package },
+  { to: "/admin/opening-stock", label: "Opening Stock", shortLabel: "Opening", icon: Boxes },
+  { to: "/admin/mtn", label: "Stock Transfer", shortLabel: "MTN", icon: ClipboardCheck },
   { to: "/admin/reports", label: "Approvals", shortLabel: "Approve", icon: ClipboardCheck },
-  { to: "/admin/daily-sales", label: "Daily Sales", shortLabel: "Sales", icon: ShoppingBag },
-  { to: "/admin/daily-stock", label: "Daily Stock", shortLabel: "Stock", icon: Boxes },
+  { to: "/admin/daily-sales", label: "Sales & Credit", shortLabel: "Sales", icon: ShoppingBag },
+  { to: "/admin/daily-stock", label: "Stock & Mismatch", shortLabel: "Stock", icon: Boxes },
   { to: "/admin/collections", label: "Collections", shortLabel: "Collect", icon: WalletCards },
-  { to: "/admin/credit-sales", label: "Credit Sales", shortLabel: "Credit", icon: FileText },
-  { to: "/admin/stock-mismatch", label: "Stock Mismatch", shortLabel: "Mismatch", icon: AlertTriangle },
   { to: "/admin/live-weight", label: "Live Weight", shortLabel: "Weight", icon: Scale }
 ];
 

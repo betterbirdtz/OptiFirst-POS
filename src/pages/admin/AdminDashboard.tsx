@@ -84,15 +84,47 @@ export const AdminDashboard: React.FC = () => {
 
   const selectedShop = useMemo(() => shops.find((shop) => shop.ShopID === shopId), [shopId, shops]);
 
+  const [products, setProducts] = useState<Array<{ ProductID: string; ProductName: string; DefaultRate: number }>>([]);
+
+  const rateDiffRows = useMemo(() => {
+    if (!dashboard || products.length === 0) return [];
+    const productRateMap = new Map(products.map((p) => [p.ProductID, p.DefaultRate]));
+    const sales = (dashboard as any).allSales || [];
+    return sales
+      .filter((s: any) => {
+        const adminRate = productRateMap.get(s.ProductID);
+        return adminRate !== undefined && Number(s.Rate) !== adminRate;
+      })
+      .map((s: any) => {
+        const adminRate = productRateMap.get(s.ProductID) || 0;
+        const employeeRate = Number(s.Rate);
+        const diff = employeeRate - adminRate;
+        const qty = Number(s.Quantity);
+        return {
+          date: s.Date,
+          shopName: s.ShopName,
+          employeeName: s.EmployeeName || "",
+          productName: s.ProductName,
+          adminRate,
+          employeeRate,
+          diff,
+          qty,
+          impact: diff * qty
+        };
+      });
+  }, [dashboard, products]);
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [shopResponse, dashboardResponse] = await Promise.all([
+      const [shopResponse, dashboardResponse, productResponse] = await Promise.all([
         appsScriptClient.getShops(),
-        appsScriptClient.getDashboard({ shopId: shopId || undefined, date, month })
+        appsScriptClient.getDashboard({ shopId: shopId || undefined, date, month }),
+        appsScriptClient.getProducts()
       ]);
       if (shopResponse.success && shopResponse.shops) setShops(shopResponse.shops);
+      if (productResponse.success && productResponse.products) setProducts(productResponse.products);
       if (dashboardResponse.success && dashboardResponse.dashboard) {
         setDashboard(dashboardResponse.dashboard);
       } else {
@@ -377,6 +409,49 @@ export const AdminDashboard: React.FC = () => {
                         <td className="p-3 text-right">{formatCurrency(row.EFDZReport)}</td>
                         <td className={`p-3 text-right font-black ${row.SalesVsEFD === 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(row.SalesVsEFD)}</td>
                         <td className="p-3"><span className={`rounded-full border px-2 py-1 text-[10px] font-black ${statusClass(row.Status)}`}>{row.Status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-amber-200 bg-card shadow-sm">
+            <div className="border-b border-amber-200 bg-amber-50 p-4">
+              <h2 className="text-sm font-black text-amber-800">⚠ Rate Difference (Employee vs Admin Rate)</h2>
+              <p className="text-[10px] text-amber-700 mt-0.5">Sales where employee entered a different rate than the product default rate set by admin.</p>
+            </div>
+            {rateDiffRows.length === 0 ? (
+              <EmptyState text="No rate differences found. All sales match admin-set rates." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[800px] text-left text-xs">
+                  <thead className="border-b border-amber-200 bg-amber-50/50 text-amber-800">
+                    <tr>
+                      <th className="p-3 font-bold">Date</th>
+                      <th className="p-3 font-bold">Shop</th>
+                      <th className="p-3 font-bold">Employee</th>
+                      <th className="p-3 font-bold">Product</th>
+                      <th className="p-3 font-bold text-right">Admin Rate</th>
+                      <th className="p-3 font-bold text-right">Employee Rate</th>
+                      <th className="p-3 font-bold text-right">Difference</th>
+                      <th className="p-3 font-bold text-right">Qty</th>
+                      <th className="p-3 font-bold text-right">Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/60">
+                    {rateDiffRows.map((row, i) => (
+                      <tr key={i} className="hover:bg-amber-50/30">
+                        <td className="p-3 font-semibold">{formatDateForDisplay(row.date)}</td>
+                        <td className="p-3">{row.shopName}</td>
+                        <td className="p-3">{row.employeeName}</td>
+                        <td className="p-3 font-bold">{row.productName}</td>
+                        <td className="p-3 text-right font-semibold">{formatCurrency(row.adminRate)}</td>
+                        <td className="p-3 text-right font-black">{formatCurrency(row.employeeRate)}</td>
+                        <td className={`p-3 text-right font-black ${row.diff > 0 ? "text-green-700" : "text-red-700"}`}>{row.diff > 0 ? "+" : ""}{formatCurrency(row.diff)}</td>
+                        <td className="p-3 text-right">{row.qty}</td>
+                        <td className={`p-3 text-right font-black ${row.impact > 0 ? "text-green-700" : "text-red-700"}`}>{row.impact > 0 ? "+" : ""}{formatCurrency(row.impact)}</td>
                       </tr>
                     ))}
                   </tbody>

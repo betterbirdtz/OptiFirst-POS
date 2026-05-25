@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, ArrowRight, Building2, Calendar, CheckCircle2, List, Plus, Save, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Building2, Calendar, CheckCircle2, Plus, Save, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import ConfirmSubmitModal from "../../components/employee/ConfirmSubmitModal";
-import ProductSearchSelect from "../../components/employee/ProductSearchSelect";
 import ReviewWarnings from "../../components/employee/ReviewWarnings";
 import StepProgress from "../../components/employee/StepProgress";
 import type { Product, SalesSubmissionItem, Shop, UserSession } from "../../types";
@@ -27,14 +26,8 @@ export const DailySalesEntry: React.FC = () => {
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productSearch, setProductSearch] = useState("");
-  const [saleQuantity, setSaleQuantity] = useState<number | "">("");
-  const [saleRate, setSaleRate] = useState<number | "">("");
-  const [saleType, setSaleType] = useState<"Cash" | "Credit">("Cash");
-  const [customerName, setCustomerName] = useState("");
-  const [efdNumber, setEfdNumber] = useState("");
-  const [mode, setMode] = useState<"bulk" | "single">("bulk");
 
-  const [bulkRows, setBulkRows] = useState<Array<{ checked: boolean; productId: string; quantity: string; rate: string; saleType: "Cash" | "Credit"; customerName: string }>>([]);
+  const [bulkRows, setBulkRows] = useState<Array<{ checked: boolean; productId: string; quantity: string; rate: string; saleType: "Cash" | "Credit"; paymentMode: string; customerName: string }>>([]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -48,9 +41,6 @@ export const DailySalesEntry: React.FC = () => {
   const allowedShops = user?.shopId ? activeShops.filter((s) => s.ShopID === user.shopId) : activeShops;
 
   const currentSalesEntries = useMemo(() => {
-    if (mode === "single") {
-      return salesEntries;
-    }
     return bulkRows
       .filter((row) => row.checked && Number(row.quantity) > 0)
       .map((row) => {
@@ -62,10 +52,11 @@ export const DailySalesEntry: React.FC = () => {
           quantity: Number(row.quantity),
           rate: Number(row.rate) || Number(p?.DefaultRate || 0),
           saleType: row.saleType,
+          paymentMode: row.saleType === "Cash" ? row.paymentMode : undefined,
           customerName: row.saleType === "Credit" ? row.customerName || undefined : undefined,
         } as SalesSubmissionItem;
       });
-  }, [mode, salesEntries, bulkRows, products]);
+  }, [bulkRows, products]);
 
   const totalCashSales = useMemo(() => currentSalesEntries.filter((s) => s.saleType === "Cash").reduce((sum, s) => sum + calculateSalesAmount(s.quantity, s.rate), 0), [currentSalesEntries]);
   const totalCreditSales = useMemo(() => currentSalesEntries.filter((s) => s.saleType === "Credit").reduce((sum, s) => sum + calculateSalesAmount(s.quantity, s.rate), 0), [currentSalesEntries]);
@@ -86,8 +77,9 @@ export const DailySalesEntry: React.FC = () => {
         if (prodRes.success && prodRes.products) {
           const active = prodRes.products.filter((p) => p.Active === "Yes");
           setProducts(active);
-          if (active[0]) { setSelectedProductId(active[0].ProductID); setSaleRate(Number(active[0].DefaultRate || 0)); }
-          setBulkRows(active.map((p) => ({ checked: false, productId: p.ProductID, quantity: "", rate: String(p.DefaultRate || ""), saleType: "Cash" as const, customerName: "" })));
+          if (active.length > 0) {
+            setBulkRows(active.map((p) => ({ checked: false, productId: p.ProductID, quantity: "", rate: String(p.DefaultRate || ""), saleType: "Cash" as const, paymentMode: "Cash", customerName: "" })));
+          }
         }
       } catch { setError("Failed to load data."); }
       finally { setLoading(false); }
@@ -121,7 +113,7 @@ export const DailySalesEntry: React.FC = () => {
         if (parsed.shopId) setShopId(parsed.shopId);
         if (parsed.date) setDate(parsed.date);
         if (parsed.salesEntries) setSalesEntries(parsed.salesEntries);
-        if (parsed.mode) setMode(parsed.mode);
+        if (parsed.mode) { /* legacy */ }
       }
     } catch {
       localStorage.removeItem("draft_sales");
@@ -143,6 +135,7 @@ export const DailySalesEntry: React.FC = () => {
             quantity: String(item.quantity),
             rate: String(item.rate),
             saleType: item.saleType as "Cash" | "Credit",
+            paymentMode: item.paymentMode || "Cash",
             customerName: item.customerName || "",
           };
         } else {
@@ -152,6 +145,7 @@ export const DailySalesEntry: React.FC = () => {
             quantity: String(item.quantity),
             rate: String(item.rate),
             saleType: item.saleType as "Cash" | "Credit",
+            paymentMode: item.paymentMode || "Cash",
             customerName: item.customerName || "",
           });
         }
@@ -160,84 +154,6 @@ export const DailySalesEntry: React.FC = () => {
     });
     setDraftSynced(true);
   }, [products, salesEntries, draftSynced]);
-
-  const handleModeChange = (newMode: "bulk" | "single") => {
-    if (newMode === mode) return;
-    
-    if (newMode === "single") {
-      const items: SalesSubmissionItem[] = [];
-      for (const row of bulkRows) {
-        if (!row.checked) continue;
-        const qty = Number(row.quantity);
-        if (!qty || qty <= 0) continue;
-        const p = products.find((x) => x.ProductID === row.productId);
-        if (!p) continue;
-        items.push({
-          productId: p.ProductID,
-          productName: p.ProductName,
-          uom: p.UOM,
-          quantity: qty,
-          rate: Number(row.rate) || Number(p.DefaultRate || 0),
-          saleType: row.saleType,
-          customerName: row.saleType === "Credit" ? row.customerName || undefined : undefined,
-        });
-      }
-      setSalesEntries(items);
-    } else {
-      const baseRows = products.map((p) => ({
-        checked: false,
-        productId: p.ProductID,
-        quantity: "",
-        rate: String(p.DefaultRate || ""),
-        saleType: "Cash" as "Cash" | "Credit",
-        customerName: "",
-      }));
-      
-      salesEntries.forEach((item) => {
-        const existingIdx = baseRows.findIndex(
-          (r) => r.productId === item.productId && !r.checked
-        );
-        if (existingIdx !== -1) {
-          baseRows[existingIdx] = {
-            checked: true,
-            productId: item.productId,
-            quantity: String(item.quantity),
-            rate: String(item.rate),
-            saleType: item.saleType as "Cash" | "Credit",
-            customerName: item.customerName || "",
-          };
-        } else {
-          baseRows.push({
-            checked: true,
-            productId: item.productId,
-            quantity: String(item.quantity),
-            rate: String(item.rate),
-            saleType: item.saleType as "Cash" | "Credit",
-            customerName: item.customerName || "",
-          });
-        }
-      });
-      setBulkRows(baseRows);
-    }
-    setMode(newMode);
-  };
-
-  const handleProductChange = (id: string) => {
-    setSelectedProductId(id);
-    const p = products.find((x) => x.ProductID === id);
-    if (p) setSaleRate(Number(p.DefaultRate || 0));
-  };
-
-  const handleAddSingle = () => {
-    setError("");
-    const product = products.find((p) => p.ProductID === selectedProductId);
-    if (!product) { setError("Select a product."); return; }
-    if (!saleQuantity || Number(saleQuantity) <= 0) { setError("Enter quantity > 0."); return; }
-    if (saleRate === "" || Number(saleRate) < 0) { setError("Enter a valid rate."); return; }
-    if (saleType === "Credit" && !customerName.trim()) { setError("Customer name required for credit."); return; }
-    setSalesEntries((c) => [...c, { productId: product.ProductID, productName: product.ProductName, uom: product.UOM, quantity: Number(saleQuantity), rate: Number(saleRate), saleType, customerName: saleType === "Credit" ? customerName.trim() : undefined, efdNumber: efdNumber.trim() || undefined }]);
-    setSaleQuantity(""); setCustomerName(""); setEfdNumber("");
-  };
 
 
 
@@ -260,13 +176,17 @@ export const DailySalesEntry: React.FC = () => {
       if (field === "quantity" && Number(value) > 0) {
         updated.checked = true;
       }
+      if (field === "saleType") {
+        if (value === "Cash") { updated.customerName = ""; if (!updated.paymentMode) updated.paymentMode = "Cash"; }
+        else { updated.paymentMode = ""; }
+      }
       return updated;
     }));
   };
 
   const handleSaveDraft = () => {
     if (!user) return;
-    localStorage.setItem("draft_sales", JSON.stringify({ employeeId: user.employeeId, shopId, date, salesEntries: currentSalesEntries, mode }));
+    localStorage.setItem("draft_sales", JSON.stringify({ employeeId: user.employeeId, shopId, date, salesEntries: currentSalesEntries }));
     window.alert("Draft saved.");
   };
 
@@ -314,7 +234,7 @@ export const DailySalesEntry: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5 px-3 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto max-w-lg space-y-5 px-3 py-4 pb-28 sm:max-w-4xl sm:px-6 sm:py-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate("/employee/dashboard")} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary"><ArrowLeft className="h-4 w-4" /></button>
         <div>
@@ -356,15 +276,9 @@ export const DailySalesEntry: React.FC = () => {
           {step === 2 && (
             <div className="space-y-5">
               <div className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-primary"><ShoppingBag className="h-5 w-5" /><h2 className="text-lg font-black">Add Sales</h2></div>
-                  <div className="flex rounded-lg border border-border bg-secondary p-0.5">
-                    <button type="button" onClick={() => handleModeChange("bulk")} className={`rounded-md px-3 py-1.5 text-xs font-bold ${mode === "bulk" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><List className="mr-1 inline h-3 w-3" />Bulk</button>
-                    <button type="button" onClick={() => handleModeChange("single")} className={`rounded-md px-3 py-1.5 text-xs font-bold ${mode === "single" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}><Plus className="mr-1 inline h-3 w-3" />Single</button>
-                  </div>
-                </div>
+                <div className="flex items-center gap-2 text-primary"><ShoppingBag className="h-5 w-5" /><h2 className="text-lg font-black">Add Sales</h2></div>
 
-                {mode === "bulk" ? (
+                {(
                   <div className="space-y-4">
                     <p className="text-xs text-muted-foreground">Select products sold by checking them. Only checked items with quantity &gt; 0 will be added.</p>
                     
@@ -388,7 +302,7 @@ export const DailySalesEntry: React.FC = () => {
                             <th className="p-2.5 font-bold w-20">Qty</th>
                             <th className="p-2.5 font-bold w-24">Rate</th>
                             <th className="p-2.5 font-bold w-24">Type</th>
-                            <th className="p-2.5 font-bold w-40">Customer</th>
+                            <th className="p-2.5 font-bold w-28">Mode / Customer</th>
                             <th className="p-2.5 font-bold text-right w-32">Amount</th>
                             <th className="p-2.5 w-12 text-center"></th>
                           </tr>
@@ -463,7 +377,7 @@ export const DailySalesEntry: React.FC = () => {
                                     <option value="Credit">Credit</option>
                                   </select>
                                 </td>
-                                <td className="p-2 w-40">
+                                <td className="p-2 w-28">
                                   {row.saleType === "Credit" ? (
                                     <input
                                       value={row.customerName}
@@ -473,7 +387,17 @@ export const DailySalesEntry: React.FC = () => {
                                       placeholder="Name"
                                     />
                                   ) : (
-                                    <span className="text-muted-foreground text-xs block py-2 text-center">-</span>
+                                    <select
+                                      value={row.paymentMode}
+                                      disabled={!row.checked}
+                                      onChange={(e) => updateBulkRow(i, "paymentMode", e.target.value)}
+                                      className="w-full rounded border border-input bg-background px-1.5 py-2 text-xs font-bold outline-none focus:border-primary disabled:bg-secondary/50 disabled:text-muted-foreground"
+                                    >
+                                      <option value="Cash">Cash</option>
+                                      <option value="Mpesa">Mpesa</option>
+                                      <option value="Selcom">Selcom</option>
+                                      <option value="Bank">Bank</option>
+                                    </select>
                                   )}
                                 </td>
                                 <td className="p-2 text-right font-black text-xs w-32">
@@ -628,6 +552,22 @@ export const DailySalesEntry: React.FC = () => {
                                     />
                                   </div>
                                 )}
+                                {row.saleType === "Cash" && (
+                                  <div className="transition-all duration-200">
+                                    <label className="mb-1 block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Payment Mode</label>
+                                    <select
+                                      value={row.paymentMode}
+                                      disabled={!row.checked}
+                                      onChange={(e) => updateBulkRow(i, "paymentMode", e.target.value)}
+                                      className="w-full rounded-lg border border-input bg-background px-2.5 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-primary disabled:bg-secondary/40 disabled:text-muted-foreground"
+                                    >
+                                      <option value="Cash">Cash</option>
+                                      <option value="Mpesa">Mpesa</option>
+                                      <option value="Selcom">Selcom</option>
+                                      <option value="Bank">Bank</option>
+                                    </select>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -647,6 +587,7 @@ export const DailySalesEntry: React.FC = () => {
                               quantity: "",
                               rate: String(products[0]?.DefaultRate || ""),
                               saleType: "Cash",
+                              paymentMode: "Cash",
                               customerName: "",
                             },
                           ])
@@ -656,23 +597,6 @@ export const DailySalesEntry: React.FC = () => {
                         <Plus className="h-4 w-4" /> Add Extra Product Row
                       </button>
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <ProductSearchSelect products={products} selectedProductId={selectedProductId} searchTerm={productSearch} onSearchTermChange={setProductSearch} onProductChange={handleProductChange} />
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="mb-1.5 block text-sm font-bold">Quantity</label><input type="number" min="0" step="0.01" inputMode="decimal" value={saleQuantity} onChange={(e) => setSaleQuantity(e.target.value === "" ? "" : Number(e.target.value))} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" /></div>
-                      <div><label className="mb-1.5 block text-sm font-bold">Rate</label><input type="number" min="0" step="0.01" inputMode="decimal" value={saleRate} onChange={(e) => setSaleRate(e.target.value === "" ? "" : Number(e.target.value))} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" /></div>
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-bold">Sale Type</label>
-                      <div className="grid grid-cols-2 rounded-lg border border-border bg-secondary p-1">
-                        {(["Cash", "Credit"] as const).map((t) => <button key={t} type="button" onClick={() => setSaleType(t)} className={`rounded-md py-3 text-sm font-black ${saleType === t ? t === "Cash" ? "bg-green-600 text-white" : "bg-amber-500 text-white" : "text-muted-foreground"}`}>{t}</button>)}
-                      </div>
-                    </div>
-                    {saleType === "Credit" && <div><label className="mb-1.5 block text-sm font-bold">Customer Name *</label><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="w-full rounded-lg border border-amber-300 bg-background px-3 py-3 text-base font-semibold outline-none focus:ring-2 focus:ring-ring" placeholder="Customer name" /></div>}
-                    <div><label className="mb-1.5 block text-sm font-bold">EFD Number</label><input value={efdNumber} onChange={(e) => setEfdNumber(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base outline-none focus:ring-2 focus:ring-ring" placeholder="Optional" /></div>
-                    <button type="button" onClick={handleAddSingle} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground"><Plus className="h-5 w-5" /> Add Item</button>
                   </div>
                 )}
               </div>
@@ -685,25 +609,6 @@ export const DailySalesEntry: React.FC = () => {
               </div>
 
               {/* Items list */}
-              {mode === "single" && (
-                <div className="space-y-3">
-                  {salesEntries.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">No sales items added yet.</div>
-                  ) : salesEntries.map((item, i) => (
-                    <div key={`${item.productId}-${i}`} className="flex items-center justify-between rounded-lg border border-border bg-card p-3 shadow-sm">
-                      <div>
-                        <p className="font-black text-sm">{item.productName}</p>
-                        <p className="text-xs text-muted-foreground">{item.quantity} {item.uom} × {formatCurrency(item.rate)} · <span className={item.saleType === "Cash" ? "text-green-700" : "text-amber-700"}>{item.saleType}</span>{item.customerName ? ` · ${item.customerName}` : ""}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-black">{formatCurrency(calculateSalesAmount(item.quantity, item.rate))}</span>
-                        <button type="button" onClick={() => setSalesEntries((c) => c.filter((_, idx) => idx !== i))} className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Navigation */}
               <div className="flex gap-3 rounded-xl border border-border bg-card p-4 shadow-sm sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
                 <button type="button" onClick={() => setStep(1)} className="flex-1 rounded-lg border border-border py-3 text-sm font-bold hover:bg-secondary">Back</button>

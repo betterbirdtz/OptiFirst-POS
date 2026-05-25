@@ -1,9 +1,9 @@
 import React, { useCallback, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, RefreshCw, Edit2, AlertCircle } from "lucide-react";
+import { ClipboardList, Clock, CheckCircle2, XCircle, AlertTriangle, ArrowLeft, RefreshCw, Edit2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { DailySalesEntry, DailyStockEntry, DailySummaryEntry, UserSession } from "../../types";
-import { formatDateForDisplay, formatDateTimeForDisplay } from "../../utils/date";
+import { formatDateForDisplay, formatDateTimeForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { formatCurrency } from "../../utils/calculations";
 import { getSessionUser } from "../../utils/session";
 
@@ -13,8 +13,12 @@ export const MyReports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingReportId, setLoadingReportId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailSales, setDetailSales] = useState<DailySalesEntry[]>([]);
+  const [detailStocks, setDetailStocks] = useState<DailyStockEntry[]>([]);
 
   const [user] = useState<UserSession | null>(() => getSessionUser());
+  const today = getLocalDateInputValue();
 
   const fetchReports = useCallback(async () => {
     if (!user) return;
@@ -23,228 +27,197 @@ export const MyReports: React.FC = () => {
     try {
       const response = await appsScriptClient.getEmployeeReports(user.employeeId);
       if (response.success && response.reports) {
-        // Sort reports by date descending
-        const sorted = response.reports.sort((a: DailySummaryEntry, b: DailySummaryEntry) => {
-          return new Date(b.SubmittedAt).getTime() - new Date(a.SubmittedAt).getTime();
-        });
+        const sorted = response.reports.sort((a: DailySummaryEntry, b: DailySummaryEntry) => new Date(b.SubmittedAt).getTime() - new Date(a.SubmittedAt).getTime());
         setReports(sorted);
       } else {
-        setError("Failed to load reports. Try again.");
+        setError("Failed to load reports.");
       }
-    } catch (e) {
-      console.error(e);
-      setError("Network error loading reports.");
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError("Network error."); }
+    finally { setLoading(false); }
   }, [user]);
 
   useEffect(() => {
-    if (!user) {
-      navigate("/login");
-      return;
-    }
+    if (!user) { navigate("/login"); return; }
     fetchReports();
   }, [fetchReports, navigate, user]);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "Approved":
-        return <CheckCircle2 className="h-5 w-5 text-green-500" />;
-      case "Rejected":
-        return <XCircle className="h-5 w-5 text-red-500" />;
-      case "Reopened":
-        return <AlertTriangle className="h-5 w-5 text-orange-500" />;
-      default:
-        return <Clock className="h-5 w-5 text-blue-500" />;
+  const toggleExpand = async (report: DailySummaryEntry) => {
+    if (expandedId === report.ReportID) {
+      setExpandedId(null);
+      return;
     }
+    setExpandedId(report.ReportID);
+    setLoadingReportId(report.ReportID);
+    try {
+      const response = await appsScriptClient.getReportsByDate(report.Date, report.Date, user?.employeeId);
+      if (response.success) {
+        setDetailSales((response.sales || []).filter((s: DailySalesEntry) => s.ReportID === report.ReportID));
+        setDetailStocks((response.stocks || []).filter((s: DailyStockEntry) => s.ReportID === report.ReportID));
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingReportId(null); }
+  };
+
+  const handleEdit = (report: DailySummaryEntry) => {
+    navigate("/employee/closing", {
+      state: {
+        resubmitReport: {
+          reportId: report.ReportID,
+          shopId: report.ShopID,
+          date: report.Date.split("T")[0],
+          salesEntries: detailSales.map((s) => ({ productId: s.ProductID, productName: s.ProductName, uom: s.UOM, quantity: Number(s.Quantity), rate: Number(s.Rate), saleType: s.SaleType, customerName: s.CustomerName || undefined, efdNumber: s.EFDNumber || undefined })),
+          stockEntries: detailStocks.map((s) => ({ productId: s.ProductID, productName: s.ProductName, category: s.Category, uom: s.UOM, openingStock: Number(s.OpeningStock), receipt: Number(s.Receipt), sales: Number(s.Sales), actualClosing: Number(s.ActualClosing) }))
+        }
+      }
+    });
+  };
+
+  const canEdit = (report: DailySummaryEntry) => {
+    const reportDate = report.Date.split("T")[0];
+    return reportDate === today || report.Status === "Reopened";
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "Approved":
-        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/40";
-      case "Rejected":
-        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/40";
-      case "Reopened":
-        return "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800/40";
-      default:
-        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800/40";
-    }
-  };
-
-  // Resubmit Flow: Fetch full details and send to wizard
-  const handleEditAndResubmit = async (report: DailySummaryEntry) => {
-    if (!user) return;
-    setLoadingReportId(report.ReportID);
-    setError("");
-    try {
-      // Fetch details by report date and employee
-      const response = await appsScriptClient.getReportsByDate(report.Date, report.Date, user.employeeId);
-      
-      if (response.success) {
-        // Filter lines matching our ReportID
-        const salesRows = (response.sales || []).filter((sale: DailySalesEntry) => sale.ReportID === report.ReportID);
-        const stockRows = (response.stocks || []).filter((stock: DailyStockEntry) => stock.ReportID === report.ReportID);
-
-        // Map them back to the state format required by TodayReport wizard
-        const mappedSales = salesRows.map((sale) => ({
-          productId: sale.ProductID,
-          productName: sale.ProductName,
-          uom: sale.UOM,
-          quantity: Number(sale.Quantity),
-          rate: Number(sale.Rate),
-          saleType: sale.SaleType,
-          customerName: sale.CustomerName || undefined,
-          efdNumber: sale.EFDNumber || undefined
-        }));
-
-        const mappedStock = stockRows.map((stock) => ({
-          productId: stock.ProductID,
-          productName: stock.ProductName,
-          category: stock.Category,
-          uom: stock.UOM,
-          openingStock: Number(stock.OpeningStock),
-          receipt: Number(stock.Receipt),
-          sales: Number(stock.Sales),
-          actualClosing: Number(stock.ActualClosing)
-        }));
-
-        // Navigate to EOD closing and pass this state
-        navigate("/employee/closing", { 
-          state: { 
-            resubmitReport: {
-              reportId: report.ReportID,
-              shopId: report.ShopID,
-              date: report.Date.split("T")[0],
-              salesEntries: mappedSales,
-              stockEntries: mappedStock
-            } 
-          } 
-        });
-      } else {
-        setError("Failed to download report items for resubmission.");
-      }
-    } catch (e) {
-      console.error(e);
-      setError("Network error while trying to fetch report details.");
-    } finally {
-      setLoadingReportId(null);
+      case "Approved": return "bg-green-100 text-green-800 border-green-200";
+      case "Rejected": return "bg-red-100 text-red-800 border-red-200";
+      case "Reopened": return "bg-orange-100 text-orange-800 border-orange-200";
+      default: return "bg-blue-100 text-blue-800 border-blue-200";
     }
   };
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-      {/* Header */}
+    <div className="mx-auto max-w-lg px-3 py-4 pb-28 sm:max-w-4xl sm:px-6 lg:px-8 space-y-5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => navigate("/employee/dashboard")}
-            className="p-2 border border-border hover:bg-secondary rounded-lg text-muted-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate("/employee/dashboard")} className="p-2 border border-border hover:bg-secondary rounded-lg text-muted-foreground"><ArrowLeft className="h-4 w-4" /></button>
           <div>
-            <h1 className="text-xl font-bold flex items-center space-x-2">
-              <ClipboardList className="h-5 w-5 text-primary" />
-              <span>My Submitted Reports</span>
-            </h1>
-            <p className="text-xs text-muted-foreground">Historical list of your submissions</p>
+            <h1 className="text-xl font-black flex items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />My Reports</h1>
+            <p className="text-xs text-muted-foreground">View full details of all submissions. Edit same-day or reopened reports.</p>
           </div>
         </div>
-        
-        <button
-          onClick={fetchReports}
-          disabled={loading}
-          className="p-2 border border-border rounded-lg hover:bg-secondary text-muted-foreground"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        <button onClick={fetchReports} disabled={loading} className="p-2 border border-border rounded-lg hover:bg-secondary text-muted-foreground"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
       </div>
 
-      {error && (
-        <div className="flex items-center space-x-2 rounded-xl bg-destructive/10 p-3.5 text-sm text-destructive border border-destructive/20">
-          <AlertCircle className="h-5 w-5 flex-shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      {error && <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>}
 
-      {/* Reports List */}
       {loading && reports.length === 0 ? (
-        <div className="flex justify-center py-12">
-          <div className="h-8 w-8 border-4 border-t-transparent border-primary rounded-full animate-spin"></div>
-        </div>
+        <div className="flex justify-center py-12"><div className="h-8 w-8 border-4 border-t-transparent border-primary rounded-full animate-spin"></div></div>
       ) : reports.length === 0 ? (
         <div className="text-center py-16 bg-card border border-border rounded-2xl text-muted-foreground">
           <ClipboardList className="h-12 w-12 mx-auto opacity-20 mb-3" />
-          <p className="font-medium text-sm">No submissions recorded yet.</p>
-          <p className="text-xs mt-1">Submit your first report from the Dashboard.</p>
+          <p className="text-sm font-medium">No submissions yet.</p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {reports.map((report) => (
-            <div 
-              key={report.ReportID} 
-              className="bg-card border border-border hover:border-border/100 rounded-2xl p-5 shadow-sm space-y-4 transition-all"
-            >
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <span className="text-xs font-semibold text-muted-foreground">Report ID: {report.ReportID}</span>
-                  <h3 className="text-base font-bold">
-                    {formatDateForDisplay(report.Date)}
-                  </h3>
-                  <p className="text-[11px] text-muted-foreground">Submitted: {formatDateTimeForDisplay(report.SubmittedAt)}</p>
+            <div key={report.ReportID} className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+              {/* Summary Row - Click to expand */}
+              <button type="button" onClick={() => toggleExpand(report)} className="w-full p-4 text-left flex items-center justify-between gap-3 hover:bg-secondary/30">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-black">{formatDateForDisplay(report.Date)}</p>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${getStatusColor(report.Status)}`}>{report.Status}</span>
+                    {canEdit(report) && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">Editable</span>}
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                    <span>Total: <strong className="text-foreground">{formatCurrency(report.TotalSales)}</strong></span>
+                    <span>Cash: <strong className="text-green-700">{formatCurrency(report.CashSales)}</strong></span>
+                    <span>Credit: <strong className="text-amber-700">{formatCurrency(report.CreditSales)}</strong></span>
+                    <span>Mismatch: <strong className={report.StockMismatch > 0 ? "text-red-700" : "text-green-700"}>{report.StockMismatch}</strong></span>
+                  </div>
                 </div>
-                <span className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(report.Status)}`}>
-                  {getStatusIcon(report.Status)}
-                  <span>{report.Status}</span>
-                </span>
-              </div>
+                {expandedId === report.ReportID ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
 
-              {/* Data Summary Grid */}
-              <div className="grid grid-cols-3 gap-2 bg-secondary/30 p-3 rounded-xl text-center text-xs">
-                <div>
-                  <p className="text-muted-foreground font-semibold">Total Sales</p>
-                  <p className="font-extrabold text-foreground mt-0.5">{formatCurrency(report.TotalSales)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground font-semibold">Cash Sales</p>
-                  <p className="font-bold text-foreground mt-0.5">{formatCurrency(report.CashSales)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground font-semibold">Credit Sales</p>
-                  <p className="font-bold text-foreground mt-0.5">{formatCurrency(report.CreditSales)}</p>
-                </div>
-              </div>
+              {/* Expanded Detail */}
+              {expandedId === report.ReportID && (
+                <div className="border-t border-border p-4 space-y-4 bg-secondary/10">
+                  {loadingReportId === report.ReportID ? (
+                    <div className="flex justify-center py-4"><div className="h-5 w-5 border-2 border-t-transparent border-primary rounded-full animate-spin"></div></div>
+                  ) : (
+                    <>
+                      {/* Sales Detail */}
+                      <div>
+                        <h4 className="text-xs font-black text-muted-foreground mb-2">Sales Items ({detailSales.length})</h4>
+                        {detailSales.length === 0 ? <p className="text-xs text-muted-foreground">No sales entries.</p> : (
+                          <div className="overflow-x-auto rounded-lg border border-border">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-secondary/50 text-muted-foreground">
+                                <tr>
+                                  <th className="p-2 font-bold">Product</th>
+                                  <th className="p-2 font-bold text-right">Qty</th>
+                                  <th className="p-2 font-bold text-right">Rate</th>
+                                  <th className="p-2 font-bold">Type</th>
+                                  <th className="p-2 font-bold">Customer</th>
+                                  <th className="p-2 font-bold text-right">Amount</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border/60">
+                                {detailSales.map((s, i) => (
+                                  <tr key={i}>
+                                    <td className="p-2 font-semibold">{s.ProductName}</td>
+                                    <td className="p-2 text-right">{s.Quantity} {s.UOM}</td>
+                                    <td className="p-2 text-right">{formatCurrency(s.Rate)}</td>
+                                    <td className={`p-2 font-bold ${s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}`}>{s.SaleType}</td>
+                                    <td className="p-2">{s.CustomerName || "-"}</td>
+                                    <td className="p-2 text-right font-black">{formatCurrency(s.TotalAmount)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
 
-              {/* Mismatch Count Info */}
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Stock Mismatches:</span>
-                <span className={`font-semibold ${report.StockMismatch > 0 ? "text-destructive" : "text-green-600"}`}>
-                  {report.StockMismatch} products
-                </span>
-              </div>
+                      {/* Stock Detail */}
+                      <div>
+                        <h4 className="text-xs font-black text-muted-foreground mb-2">Stock Entries ({detailStocks.length})</h4>
+                        {detailStocks.length === 0 ? <p className="text-xs text-muted-foreground">No stock entries.</p> : (
+                          <div className="overflow-x-auto rounded-lg border border-border">
+                            <table className="w-full text-left text-xs">
+                              <thead className="bg-secondary/50 text-muted-foreground">
+                                <tr>
+                                  <th className="p-2 font-bold">Product</th>
+                                  <th className="p-2 font-bold text-right">Opening</th>
+                                  <th className="p-2 font-bold text-right">Receipt</th>
+                                  <th className="p-2 font-bold text-right">Sales</th>
+                                  <th className="p-2 font-bold text-right">Expected</th>
+                                  <th className="p-2 font-bold text-right">Actual</th>
+                                  <th className="p-2 font-bold text-right">Mismatch</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border/60">
+                                {detailStocks.map((s, i) => (
+                                  <tr key={i}>
+                                    <td className="p-2 font-semibold">{s.ProductName}</td>
+                                    <td className="p-2 text-right">{s.OpeningStock}</td>
+                                    <td className="p-2 text-right">{s.Receipt}</td>
+                                    <td className="p-2 text-right">{s.Sales}</td>
+                                    <td className="p-2 text-right">{s.ExpectedClosing}</td>
+                                    <td className="p-2 text-right font-bold">{s.ActualClosing}</td>
+                                    <td className={`p-2 text-right font-black ${Number(s.Mismatch) === 0 ? "text-green-700" : "text-red-700"}`}>{Number(s.Mismatch) === 0 ? "✓" : s.Mismatch}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
 
-              {/* Edit/Resubmit Action for Reopened reports */}
-              {report.Status === "Reopened" && (
-                <div className="border-t border-border/50 pt-3 flex justify-end">
-                  <button
-                    onClick={() => handleEditAndResubmit(report)}
-                    disabled={loadingReportId === report.ReportID}
-                    className="flex items-center space-x-1.5 py-1.5 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-orange-600/10 disabled:opacity-50"
-                  >
-                    {loadingReportId === report.ReportID ? (
-                      <>
-                        <div className="h-3.5 w-3.5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
-                        <span>Loading Details...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Edit2 className="h-3.5 w-3.5" />
-                        <span>Edit & Resubmit</span>
-                      </>
-                    )}
-                  </button>
+                      {/* Submitted info */}
+                      <div className="text-xs text-muted-foreground">Submitted: {formatDateTimeForDisplay(report.SubmittedAt)}</div>
+
+                      {/* Edit button */}
+                      {canEdit(report) && (
+                        <div className="flex justify-end pt-2 border-t border-border">
+                          <button onClick={() => handleEdit(report)} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90">
+                            <Edit2 className="h-3.5 w-3.5" /> Edit & Resubmit
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </div>

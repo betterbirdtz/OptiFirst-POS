@@ -4,18 +4,12 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  Banknote,
   Boxes,
   Building2,
   Calendar,
   CheckCircle2,
-  CreditCard,
-  Landmark,
-  ReceiptText,
   Save,
-  Send,
-  ShoppingBag,
-  WalletCards
+  Send
 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import ConfirmSubmitModal from "../../components/employee/ConfirmSubmitModal";
@@ -23,30 +17,15 @@ import ReviewWarnings from "../../components/employee/ReviewWarnings";
 import StepProgress from "../../components/employee/StepProgress";
 import type { Product, SalesSubmissionItem, Shop, StockSubmissionItem, UserSession } from "../../types";
 import {
-  calculateActualCollection,
-  calculateBankDepositDifference,
-  calculateCollectionVariance,
   calculateExpectedClosing,
   calculateMismatch,
   calculateSalesAmount,
-  calculateSalesVsEfd,
   formatCurrency
 } from "../../utils/calculations";
-import { getDayName, getLocalDateInputValue } from "../../utils/date";
+import { getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
-import { getDailyReportWarnings, hasBlockingReportErrors, validateCollectionSettlement } from "../../utils/validation";
+import { getDailyReportWarnings, hasBlockingReportErrors } from "../../utils/validation";
 
-interface CollectionFormState {
-  depositCash: number;
-  depositLIPA: number;
-  depositInBank: number;
-  dateOfDeposit: string;
-  efdZReport: number;
-  name: string;
-  signatureConfirmed: boolean;
-  remarks: string;
-  status?: string;
-}
 
 export const EodClosing: React.FC = () => {
   const navigate = useNavigate();
@@ -62,16 +41,6 @@ export const EodClosing: React.FC = () => {
 
   const [salesEntries, setSalesEntries] = useState<SalesSubmissionItem[]>([]);
   const [stockEntries, setStockEntries] = useState<StockSubmissionItem[]>([]);
-  const [collection, setCollection] = useState<CollectionFormState>({
-    depositCash: 0,
-    depositLIPA: 0,
-    depositInBank: 0,
-    dateOfDeposit: "",
-    efdZReport: 0,
-    name: user?.name || "",
-    signatureConfirmed: false,
-    remarks: ""
-  });
 
   const [loading, setLoading] = useState(true);
   const [preparing, setPreparing] = useState(false);
@@ -80,7 +49,7 @@ export const EodClosing: React.FC = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
-  const activeSteps = ["Shop & Date", "Daily Stock", "Collection", "Review & Submit"];
+  const activeSteps = ["Shop & Date", "Daily Stock", "Review & Submit"];
 
   const selectedShop = shops.find((shop) => shop.ShopID === shopId);
   const activeShops = shops.filter((shop) => shop.Status === "Active");
@@ -96,25 +65,7 @@ export const EodClosing: React.FC = () => {
   );
   const totalSales = totalCashSales + totalCreditSales;
   const stockWarnings = useMemo(() => getDailyReportWarnings([], stockEntries), [stockEntries]);
-  
-  const actualCollection = calculateActualCollection(collection.depositCash, collection.depositLIPA);
-  const collectionVariance = calculateCollectionVariance(totalCashSales, collection.depositCash, collection.depositLIPA);
-  const bankDepositDifference = calculateBankDepositDifference(collection.depositCash, collection.depositInBank);
-  const salesVsEfd = calculateSalesVsEfd(totalSales, collection.efdZReport);
-
-  const collectionWarnings = useMemo(() => {
-    const next: string[] = [];
-    if (collectionVariance !== 0) next.push(`Collection variance is ${formatCurrency(collectionVariance)}.`);
-    if (bankDepositDifference !== 0) next.push(`Bank deposit difference is ${formatCurrency(bankDepositDifference)}.`);
-    if (!collection.efdZReport) next.push("EFD Z Report is missing.");
-    else if (salesVsEfd !== 0) next.push(`Sales vs EFD difference is ${formatCurrency(salesVsEfd)}.`);
-    if (collection.depositInBank > 0 && !collection.dateOfDeposit) next.push("Date of deposit is required.");
-    if (!collection.signatureConfirmed) next.push("Signature confirmation is required.");
-    if (collectionVariance !== 0 && !collection.remarks.trim()) next.push("Remarks are required for collection variance.");
-    return next;
-  }, [bankDepositDifference, collection.dateOfDeposit, collection.depositInBank, collection.efdZReport, collection.remarks, collection.signatureConfirmed, collectionVariance, salesVsEfd]);
-
-  const warnings = useMemo(() => [...stockWarnings, ...collectionWarnings], [stockWarnings, collectionWarnings]);
+  const warnings = stockWarnings;
 
   // Load shops and products
   useEffect(() => {
@@ -184,7 +135,6 @@ export const EodClosing: React.FC = () => {
         if (parsed.date) setDate(parsed.date);
         if (parsed.salesEntries) setSalesEntries(parsed.salesEntries);
         if (parsed.stockEntries) setStockEntries(parsed.stockEntries);
-        if (parsed.collection) setCollection(parsed.collection);
         if (parsed.stockEntries?.length) {
           setStep(2);
         }
@@ -199,12 +149,11 @@ export const EodClosing: React.FC = () => {
     setPreparing(true);
     setError("");
     try {
-      const [reportResponse, salesResponse, stockResponse, openingResponse, collectionResponse] = await Promise.all([
+      const [reportResponse, salesResponse, stockResponse, openingResponse] = await Promise.all([
         appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, date),
         appsScriptClient.getDailySalesReport({ shopId: selectedShop.ShopID, startDate: date, endDate: date }),
         appsScriptClient.getDailyStockReport({ shopId: selectedShop.ShopID, startDate: date, endDate: date }),
-        appsScriptClient.getOpeningStock(selectedShop.ShopID, date, user.employeeId),
-        appsScriptClient.getTodayCollection({ shopId: selectedShop.ShopID, date, reportId: undefined })
+        appsScriptClient.getOpeningStock(selectedShop.ShopID, date, user.employeeId)
       ]);
 
       const report = reportResponse.report;
@@ -247,19 +196,6 @@ export const EodClosing: React.FC = () => {
         };
       }));
 
-      const coll = collectionResponse.collection;
-      setCollection({
-        depositCash: coll ? Number(coll.DepositCash || 0) : 0,
-        depositLIPA: coll ? Number(coll.DepositLIPA || 0) : 0,
-        depositInBank: coll ? Number(coll.DepositInBank || 0) : 0,
-        dateOfDeposit: coll?.DateOfDeposit || "",
-        efdZReport: coll ? Number(coll.EFDZReport || 0) : 0,
-        name: coll?.Name || user?.name || "",
-        signatureConfirmed: coll?.Signature === "Confirmed",
-        remarks: coll?.Remarks || "",
-        status: coll?.Status
-      });
-
       setStep(2);
     } catch (err) {
       console.error(err);
@@ -282,8 +218,7 @@ export const EodClosing: React.FC = () => {
         shopId,
         date,
         salesEntries,
-        stockEntries,
-        collection
+        stockEntries
       })
     );
     window.alert("Draft saved.");
@@ -296,22 +231,6 @@ export const EodClosing: React.FC = () => {
       setConfirmOpen(false);
       setError(blockingError);
       setStep(2);
-      return;
-    }
-    const collectionError = validateCollectionSettlement({
-      cashSales: totalCashSales,
-      depositCash: collection.depositCash,
-      depositLIPA: collection.depositLIPA,
-      depositInBank: collection.depositInBank,
-      dateOfDeposit: collection.dateOfDeposit,
-      efdZReport: collection.efdZReport,
-      signatureConfirmed: collection.signatureConfirmed,
-      remarks: collection.remarks
-    });
-    if (collectionError) {
-      setConfirmOpen(false);
-      setError(collectionError);
-      setStep(3);
       return;
     }
 
@@ -328,36 +247,13 @@ export const EodClosing: React.FC = () => {
         salesEntries: [],
         stockEntries
       });
-      if (!stockResponse.success) {
-        setError(stockResponse.error || "Stock submission failed.");
-        setConfirmOpen(false);
-        return;
-      }
-
-      const collectionResponse = await appsScriptClient.submitDailyCollection({
-        reportId: stockResponse.reportId || reportId,
-        shopId: selectedShop.ShopID,
-        shopName: selectedShop.ShopName,
-        employeeId: user.employeeId,
-        employeeName: user.name,
-        date,
-        depositCash: collection.depositCash,
-        depositLIPA: collection.depositLIPA,
-        depositInBank: collection.depositInBank,
-        dateOfDeposit: collection.dateOfDeposit,
-        efdZReport: collection.efdZReport,
-        name: collection.name || user.name,
-        signature: collection.signatureConfirmed ? "Confirmed" : "",
-        remarks: collection.remarks
-      });
-
-      if (collectionResponse.success) {
+      if (stockResponse.success) {
         localStorage.removeItem("draft_closing");
         setReportId(stockResponse.reportId);
         setConfirmOpen(false);
         setSuccess(true);
       } else {
-        setError(collectionResponse.error || "Collection submission failed.");
+        setError(stockResponse.error || "Stock submission failed.");
         setConfirmOpen(false);
       }
     } catch (err) {
@@ -379,7 +275,7 @@ export const EodClosing: React.FC = () => {
 
   if (success) {
     return (
-      <div className="mx-auto max-w-md space-y-6 px-4 py-16 text-center">
+      <div className="mx-auto max-w-sm space-y-6 px-4 py-16 text-center">
         <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
           <CheckCircle2 className="h-10 w-10" />
         </div>
@@ -395,7 +291,7 @@ export const EodClosing: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-3 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto max-w-lg space-y-5 px-3 py-4 pb-28 sm:max-w-2xl sm:px-6 sm:py-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate("/employee/dashboard")} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary" aria-label="Back to dashboard">
           <ArrowLeft className="h-4 w-4" />
@@ -477,189 +373,112 @@ export const EodClosing: React.FC = () => {
                   <h2 className="text-lg font-black">End-of-Day Stock</h2>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Sales quantities are loaded automatically from submitted daily sales. Enter receipt and actual closing only.
+                  Sales quantities are loaded from daily sales. Fill Receipt and Actual Closing columns.
                 </p>
               </div>
               <Totals cash={totalCashSales} credit={totalCreditSales} total={totalSales} />
+
               {Object.entries(groupedStock).map(([category, rows]) => (
-                <div key={category} className="space-y-3">
+                <div key={category} className="space-y-2">
                   <h3 className="px-1 text-xs font-black uppercase text-muted-foreground">{category}</h3>
-                  {rows.map((stock) => {
-                    const expected = calculateExpectedClosing(stock.openingStock, stock.receipt, stock.sales);
-                    const mismatch = stock.actualClosing === undefined ? undefined : calculateMismatch(stock.actualClosing, expected);
-                    return (
-                      <div key={stock.productId} className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h4 className="font-black">{stock.productName}</h4>
-                            <p className="text-xs text-muted-foreground">{stock.uom}</p>
+
+                  {/* Mobile card view */}
+                  <div className="sm:hidden space-y-3">
+                    {rows.map((stock) => {
+                      const expected = calculateExpectedClosing(stock.openingStock, stock.receipt, stock.sales);
+                      const mismatch = stock.actualClosing === undefined ? undefined : calculateMismatch(stock.actualClosing, expected);
+                      return (
+                        <div key={stock.productId} className="rounded-xl border border-border bg-card p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-black">{stock.productName}</p>
+                              <p className="text-[10px] text-muted-foreground">{stock.uom}</p>
+                            </div>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${mismatch === undefined ? "bg-secondary text-muted-foreground" : mismatch === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                              {mismatch === undefined ? "Pending" : mismatch === 0 ? "✓ Match" : `${mismatch > 0 ? "+" : ""}${mismatch}`}
+                            </span>
                           </div>
-                          <span className={`rounded-full px-2 py-1 text-[10px] font-black ${mismatch === undefined ? "bg-secondary text-muted-foreground" : mismatch === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                            {mismatch === undefined ? "Pending" : mismatch === 0 ? "Matched" : `Mismatch ${mismatch > 0 ? "+" : ""}${mismatch}`}
-                          </span>
+                          <div className="grid grid-cols-3 gap-2 rounded-lg bg-secondary/30 p-2 text-center text-[10px]">
+                            <div><p className="font-bold text-muted-foreground">Opening</p><p className="font-black">{stock.openingStock}</p></div>
+                            <div><p className="font-bold text-muted-foreground">Sales</p><p className="font-black text-primary">{stock.sales}</p></div>
+                            <div><p className="font-bold text-muted-foreground">Expected</p><p className="font-black">{expected}</p></div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="mb-1 block text-[10px] font-bold text-muted-foreground">RECEIPT</label>
+                              <input
+                                type="number" min="0" step="0.01" inputMode="decimal"
+                                value={stock.receipt || ""}
+                                onChange={(e) => updateStockEntry(stock.productId, "receipt", e.target.value === "" ? 0 : Number(e.target.value))}
+                                className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold text-center outline-none focus:ring-2 focus:ring-ring"
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-[10px] font-bold text-primary">ACTUAL CLOSING</label>
+                              <input
+                                type="number" min="0" step="0.01" inputMode="decimal"
+                                value={stock.actualClosing ?? ""}
+                                onChange={(e) => updateStockEntry(stock.productId, "actualClosing", e.target.value === "" ? undefined : Number(e.target.value))}
+                                className="w-full rounded-lg border border-primary/40 bg-background px-3 py-3 text-base font-black text-center outline-none focus:ring-2 focus:ring-primary"
+                                placeholder="Required"
+                              />
+                            </div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 rounded-lg bg-secondary/45 p-3 text-center text-xs">
-                          <MiniStat label="Opening" value={stock.openingStock} />
-                          <MiniStat label="Sales" value={stock.sales} />
-                          <MiniStat label="Expected" value={expected} />
-                        </div>
-                        <TextField label="MTN No" value={stock.mtnNo || ""} onChange={(value) => updateStockEntry(stock.productId, "mtnNo", value)} placeholder="Optional" />
-                        <div className="grid grid-cols-2 gap-3">
-                          <NumberInput label="Receipt" value={stock.receipt} onChange={(value) => updateStockEntry(stock.productId, "receipt", value)} />
-                          <NumberInput label="Actual Closing *" value={stock.actualClosing} onChange={(value) => updateStockEntry(stock.productId, "actualClosing", value)} required />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop table view */}
+                  <div className="hidden sm:block overflow-x-auto rounded-lg border border-border bg-card shadow-sm">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-secondary/50 text-muted-foreground">
+                        <tr>
+                          <th className="p-2 font-bold">Product</th>
+                          <th className="p-2 font-bold text-right">Opening</th>
+                          <th className="p-2 font-bold text-right">Sales</th>
+                          <th className="p-2 font-bold text-right w-20">Receipt</th>
+                          <th className="p-2 font-bold text-right">Expected</th>
+                          <th className="p-2 font-bold text-right w-24">Actual Closing</th>
+                          <th className="p-2 font-bold text-right">Mismatch</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {rows.map((stock) => {
+                          const expected = calculateExpectedClosing(stock.openingStock, stock.receipt, stock.sales);
+                          const mismatch = stock.actualClosing === undefined ? undefined : calculateMismatch(stock.actualClosing, expected);
+                          return (
+                            <tr key={stock.productId}>
+                              <td className="p-2">
+                                <p className="font-bold">{stock.productName}</p>
+                                <p className="text-[10px] text-muted-foreground">{stock.uom}</p>
+                              </td>
+                              <td className="p-2 text-right font-semibold">{stock.openingStock}</td>
+                              <td className="p-2 text-right font-semibold text-primary">{stock.sales}</td>
+                              <td className="p-1.5">
+                                <input type="number" min="0" step="0.01" inputMode="decimal" value={stock.receipt || ""} onChange={(e) => updateStockEntry(stock.productId, "receipt", e.target.value === "" ? 0 : Number(e.target.value))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none focus:ring-1 focus:ring-ring" placeholder="0" />
+                              </td>
+                              <td className="p-2 text-right font-semibold">{expected}</td>
+                              <td className="p-1.5">
+                                <input type="number" min="0" step="0.01" inputMode="decimal" value={stock.actualClosing ?? ""} onChange={(e) => updateStockEntry(stock.productId, "actualClosing", e.target.value === "" ? undefined : Number(e.target.value))} className="w-full rounded border border-primary/40 bg-background px-2 py-2 text-xs font-black text-right outline-none focus:ring-1 focus:ring-ring" placeholder="Required" />
+                              </td>
+                              <td className={`p-2 text-right font-black ${mismatch === undefined ? "text-muted-foreground" : mismatch === 0 ? "text-green-700" : "text-red-700"}`}>
+                                {mismatch === undefined ? "-" : mismatch === 0 ? "✓" : `${mismatch > 0 ? "+" : ""}${mismatch}`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
-              <StepActions onBack={() => setStep(1)} onSave={handleSaveDraft} nextLabel="Collection" onNext={() => setStep(3)} />
+              <StepActions onBack={() => setStep(1)} onSave={handleSaveDraft} nextLabel="Review & Submit" onNext={() => setStep(3)} />
             </div>
           )}
 
           {step === 3 && (
-            <div className="space-y-5">
-              <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="flex items-center gap-2 text-lg font-black">
-                      <WalletCards className="h-5 w-5 text-primary" />
-                      End-of-Day Collection
-                    </h2>
-                    <p className="mt-1 text-xs font-semibold text-muted-foreground">{selectedShop?.ShopName} - {date}</p>
-                  </div>
-                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${!(collectionVariance !== 0 || bankDepositDifference !== 0 || salesVsEfd !== 0) && collection.efdZReport > 0 && collection.signatureConfirmed ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    {!(collectionVariance !== 0 || bankDepositDifference !== 0 || salesVsEfd !== 0) && collection.efdZReport > 0 && collection.signatureConfirmed ? "Matched" : "Needs Check"}
-                  </span>
-                </div>
-              </div>
-
-              <section className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
-                <h3 className="flex items-center gap-2 text-sm font-black">
-                  <ShoppingBag className="h-4 w-4 text-primary" />
-                  Auto Sales Summary
-                </h3>
-                <div className="grid grid-cols-3 gap-2">
-                  <MiniPanel label="Cash Sales" value={formatCurrency(totalCashSales)} />
-                  <MiniPanel label="Credit Sales" value={formatCurrency(totalCreditSales)} />
-                  <MiniPanel label="Total Sales" value={formatCurrency(totalSales)} strong />
-                </div>
-              </section>
-
-              <section className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-                <h3 className="flex items-center gap-2 text-sm font-black">
-                  <Banknote className="h-4 w-4 text-primary" />
-                  Employee Collection Entry
-                </h3>
-
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-secondary/50 text-muted-foreground">
-                      <tr>
-                        <th className="p-2 font-bold">Sl.No</th>
-                        <th className="p-2 font-bold">Date</th>
-                        <th className="p-2 font-bold">Day</th>
-                        <th className="p-2 font-bold text-right">Cash Sales (A)</th>
-                        <th className="p-2 font-bold text-right">Credit Sales (B)</th>
-                        <th className="p-2 font-bold text-right">Total C=(A+B)</th>
-                        <th className="p-2 font-bold text-right">Deposit - Cash</th>
-                        <th className="p-2 font-bold text-right">Deposit - LIPA</th>
-                        <th className="p-2 font-bold text-right">Variance</th>
-                        <th className="p-2 font-bold text-right">Deposit in Bank</th>
-                        <th className="p-2 font-bold">Date of Deposit</th>
-                        <th className="p-2 font-bold text-right">EFD Z Report</th>
-                        <th className="p-2 font-bold text-right">Sales vs EFD</th>
-                        <th className="p-2 font-bold">Name</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-t border-border">
-                        <td className="p-2 font-bold">1</td>
-                        <td className="p-2 font-semibold">{date}</td>
-                        <td className="p-2 font-semibold">{getDayName(date)}</td>
-                        <td className="p-2 text-right font-bold text-green-700">{formatCurrency(totalCashSales)}</td>
-                        <td className="p-2 text-right font-bold text-amber-700">{formatCurrency(totalCreditSales)}</td>
-                        <td className="p-2 text-right font-black">{formatCurrency(totalSales)}</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(collection.depositCash)}</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(collection.depositLIPA)}</td>
-                        <td className={`p-2 text-right font-black ${collectionVariance !== 0 ? "text-red-700" : "text-green-700"}`}>{formatCurrency(collectionVariance)}</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(collection.depositInBank)}</td>
-                        <td className="p-2 font-semibold">{collection.dateOfDeposit || "-"}</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(collection.efdZReport)}</td>
-                        <td className={`p-2 text-right font-black ${salesVsEfd !== 0 ? "text-red-700" : "text-green-700"}`}>{formatCurrency(salesVsEfd)}</td>
-                        <td className="p-2 font-semibold">{collection.name || "-"}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <CollectionMoneyField label="Cash Sale Deposits - Cash" value={collection.depositCash} onChange={(value) => setCollection(c => ({ ...c, depositCash: value }))} icon={<Banknote className="h-4 w-4" />} />
-                  <CollectionMoneyField label="Cash Sale Deposits - LIPA" value={collection.depositLIPA} onChange={(value) => setCollection(c => ({ ...c, depositLIPA: value }))} icon={<CreditCard className="h-4 w-4" />} />
-                  <CollectionMoneyField label="Deposit in Bank" value={collection.depositInBank} onChange={(value) => setCollection(c => ({ ...c, depositInBank: value }))} icon={<Landmark className="h-4 w-4" />} />
-                  <div>
-                    <label className="mb-1.5 block text-sm font-bold">Date of Deposit</label>
-                    <input
-                      type="date"
-                      value={collection.dateOfDeposit}
-                      onChange={(event) => setCollection(c => ({ ...c, dateOfDeposit: event.target.value }))}
-                      className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                  <CollectionMoneyField label="EFD Z Report" value={collection.efdZReport} onChange={(value) => setCollection(c => ({ ...c, efdZReport: value }))} icon={<ReceiptText className="h-4 w-4" />} />
-                  <TextField label="Name" value={collection.name} onChange={(value) => setCollection(c => ({ ...c, name: value }))} placeholder="Employee name" />
-                </div>
-              </section>
-
-              <section className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
-                <h3 className="flex items-center gap-2 text-sm font-black">
-                  <CheckCircle2 className="h-4 w-4 text-primary" />
-                  Verification
-                </h3>
-                {!(collectionVariance !== 0 || bankDepositDifference !== 0 || salesVsEfd !== 0) && collection.efdZReport > 0 && collection.signatureConfirmed ? (
-                  <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm font-bold text-green-800">Collection, bank deposit, and EFD values match.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {collectionVariance !== 0 && <WarningCard text={`Variance: ${formatCurrency(collectionVariance)}. Actual collection must match cash sales unless explained.`} />}
-                    {bankDepositDifference !== 0 && <WarningCard text={`Bank Deposit Difference: ${formatCurrency(bankDepositDifference)}. Cash deposit and bank deposit do not match.`} />}
-                    {salesVsEfd !== 0 && <WarningCard text={`Sales vs EFD: ${formatCurrency(salesVsEfd)}. Total sales and EFD Z Report do not match.`} />}
-                    {collectionWarnings.filter((warning) => !warning.startsWith("Collection variance") && !warning.startsWith("Bank deposit") && !warning.startsWith("Sales vs EFD")).map((warning) => (
-                      <div key={warning} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">{warning}</div>
-                    ))}
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <MiniPanel label="Expected Collection" value={formatCurrency(totalCashSales)} />
-                  <MiniPanel label="Actual Collection" value={formatCurrency(actualCollection)} />
-                  <MiniPanel label="Variance" value={formatCurrency(collectionVariance)} danger={collectionVariance !== 0} />
-                  <MiniPanel label="Bank Diff" value={formatCurrency(bankDepositDifference)} danger={bankDepositDifference !== 0} />
-                  <MiniPanel label="Sales vs EFD" value={formatCurrency(salesVsEfd)} danger={salesVsEfd !== 0} />
-                  <MiniPanel label="Status" value={!(collectionVariance !== 0 || bankDepositDifference !== 0 || salesVsEfd !== 0) && collection.efdZReport > 0 && collection.signatureConfirmed ? "Matched" : "Check"} danger={collectionVariance !== 0 || bankDepositDifference !== 0 || salesVsEfd !== 0} />
-                </div>
-                <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm font-bold">
-                  <input
-                    type="checkbox"
-                    checked={collection.signatureConfirmed}
-                    onChange={(event) => setCollection(c => ({ ...c, signatureConfirmed: event.target.checked }))}
-                    className="mt-1 h-4 w-4"
-                  />
-                  <span>I confirm today's collection details are correct</span>
-                </label>
-                <div>
-                  <label className="mb-1.5 block text-sm font-bold">Remarks {collectionVariance !== 0 ? "*" : ""}</label>
-                  <textarea
-                    value={collection.remarks}
-                    onChange={(event) => setCollection(c => ({ ...c, remarks: event.target.value }))}
-                    placeholder={collectionVariance !== 0 ? "Explain the variance before submitting" : "Optional"}
-                    className="min-h-24 w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-semibold outline-none focus:ring-2 focus:ring-ring sm:text-sm"
-                  />
-                </div>
-              </section>
-              <StepActions onBack={() => setStep(2)} onSave={handleSaveDraft} nextLabel="Review & Submit" onNext={() => setStep(4)} />
-            </div>
-          )}
-
-          {step === 4 && (
             <div className="space-y-5">
               <div className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
                 <h2 className="text-lg font-black">Review & Submit Closing</h2>
@@ -670,11 +489,6 @@ export const EodClosing: React.FC = () => {
                   <MiniPanel label="Warnings" value={warnings.length} danger={warnings.length > 0} />
                 </div>
                 <Totals cash={totalCashSales} credit={totalCreditSales} total={totalSales} />
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <MiniPanel label="Actual Collection" value={formatCurrency(actualCollection)} />
-                  <MiniPanel label="Variance" value={formatCurrency(collectionVariance)} danger={collectionVariance !== 0} />
-                  <MiniPanel label="Sales vs EFD" value={formatCurrency(salesVsEfd)} danger={salesVsEfd !== 0} />
-                </div>
               </div>
 
               <div className="space-y-4 rounded-lg border border-border bg-card p-6 text-center shadow-sm">
@@ -684,7 +498,7 @@ export const EodClosing: React.FC = () => {
                 <div>
                   <h2 className="text-lg font-black">Submit End-of-Day Closing</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Stock closing and collection settlement will be saved for admin verification.
+                    Stock closing will be saved for admin verification.
                   </p>
                 </div>
                 <button type="button" onClick={() => setConfirmOpen(true)} className="w-full rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground">
@@ -693,8 +507,8 @@ export const EodClosing: React.FC = () => {
               </div>
 
               <div className="flex gap-3">
-                <button type="button" onClick={() => setStep(3)} className="w-full rounded-lg border border-border px-4 py-3 text-sm font-bold hover:bg-secondary">
-                  Back to Collection
+                <button type="button" onClick={() => setStep(2)} className="w-full rounded-lg border border-border px-4 py-3 text-sm font-bold hover:bg-secondary">
+                  Back to Stock
                 </button>
               </div>
             </div>
@@ -707,7 +521,7 @@ export const EodClosing: React.FC = () => {
         loading={submitting}
         totalSales={totalSales}
         warningsCount={warnings.length}
-        description="This will save end-of-day stock closing and collection settlement for admin verification."
+        description="This will save end-of-day stock closing for admin verification."
         onClose={() => setConfirmOpen(false)}
         onConfirm={submitClosing}
       />
@@ -715,41 +529,6 @@ export const EodClosing: React.FC = () => {
   );
 };
 
-const CollectionMoneyField: React.FC<{ label: string; value: number; icon: React.ReactNode; onChange: (value: number) => void }> = ({ label, value, icon, onChange }) => (
-  <div>
-    <label className="mb-1.5 block text-sm font-bold">{label}</label>
-    <div className="relative">
-      <span className="absolute left-3 top-3.5 text-muted-foreground">{icon}</span>
-      <input
-        type="number"
-        min="0"
-        step="0.01"
-        inputMode="decimal"
-        value={value || ""}
-        onChange={(event) => onChange(Number(event.target.value || 0))}
-        className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring"
-      />
-    </div>
-  </div>
-);
-
-const WarningCard: React.FC<{ text: string }> = ({ text }) => (
-  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-800">{text}</div>
-);
-
-const NumberInput: React.FC<{ label: string; value: number | undefined; required?: boolean; onChange: (value: number | undefined) => void }> = ({ label, value, required, onChange }) => (
-  <div>
-    <label className={`mb-1 block text-xs font-bold ${required ? "text-primary" : "text-muted-foreground"}`}>{label}</label>
-    <input type="number" min="0" step="0.01" inputMode="decimal" value={value ?? ""} onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-  </div>
-);
-
-const TextField: React.FC<{ label: string; value: string; placeholder?: string; onChange: (value: string) => void }> = ({ label, value, placeholder, onChange }) => (
-  <div>
-    <label className="mb-1.5 block text-sm font-bold">{label}</label>
-    <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-semibold outline-none focus:ring-2 focus:ring-ring sm:text-sm" />
-  </div>
-);
 
 const Totals: React.FC<{ cash: number; credit: number; total: number }> = ({ cash, credit, total }) => (
   <div className="sticky top-16 z-20 grid grid-cols-3 gap-2 rounded-lg border border-border bg-background/95 p-2 shadow-sm backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
@@ -766,25 +545,17 @@ const MiniPanel: React.FC<{ label: string; value: string | number; strong?: bool
   </div>
 );
 
-const MiniStat: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
-  <div>
-    <p className="font-bold text-muted-foreground">{label}</p>
-    <p className="mt-1 font-black">{value}</p>
-  </div>
-);
 
 const StepActions: React.FC<{ nextLabel: string; onBack: () => void; onSave: () => void; onNext: () => void }> = ({ nextLabel, onBack, onSave, onNext }) => (
-  <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none w-full">
-    <button type="button" onClick={onBack} className="flex-1 rounded-lg border border-border px-4 py-3 text-sm font-bold hover:bg-secondary sm:flex-none">
+  <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-card p-3 flex gap-2 sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:rounded-xl">
+    <button type="button" onClick={onBack} className="flex-1 rounded-lg border border-border py-4 text-sm font-bold active:bg-secondary">
       Back
     </button>
-    <button type="button" onClick={onSave} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-bold hover:bg-secondary sm:flex-none">
-      <Save className="h-4 w-4" />
-      Draft
+    <button type="button" onClick={onSave} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border py-4 text-sm font-bold active:bg-secondary">
+      <Save className="h-4 w-4" /> Save
     </button>
-    <button type="button" onClick={onNext} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-bold text-primary-foreground sm:flex-none">
-      {nextLabel}
-      <ArrowRight className="h-4 w-4" />
+    <button type="button" onClick={onNext} className="flex flex-[1.5] items-center justify-center gap-2 rounded-lg bg-primary py-4 text-sm font-black text-primary-foreground active:bg-primary/90">
+      {nextLabel} <ArrowRight className="h-4 w-4" />
     </button>
   </div>
 );

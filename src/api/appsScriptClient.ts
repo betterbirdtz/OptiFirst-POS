@@ -27,6 +27,10 @@ import {
   toNumber
 } from "../utils/calculations";
 import { getDayName, getLocalDateInputValue, getMonthInputValue, normalizeSheetDate } from "../utils/date";
+import { addToSyncQueue, triggerSync, startSyncEngine } from "../utils/syncEngine";
+
+// Start background sync on module load
+startSyncEngine();
 
 export interface ApiResponse {
   success: boolean;
@@ -63,7 +67,7 @@ export interface ApiResponse {
 
 type ApiData = Record<string, unknown>;
 
-const MOCK_SCHEMA_VERSION = "2026-05-collection-settlement-v1";
+const MOCK_SCHEMA_VERSION = "2026-05-v2-shops-mtn-pricing";
 
 const STORAGE_KEYS = {
   version: "opti_schema_version",
@@ -967,7 +971,8 @@ function getDashboard(data: ApiData): DashboardData {
       };
     }),
     collectionSummary: monthCollections,
-    stockMismatchRows: mismatchRows
+    stockMismatchRows: mismatchRows,
+    allSales: monthSales
   };
 }
 
@@ -987,7 +992,7 @@ function updateReportStatus(reportId: string, status: ReportStatus, adminId: str
 
 async function callMockApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
   seedMockDb();
-  await new Promise((resolve) => window.setTimeout(resolve, 180));
+  await new Promise((resolve) => window.setTimeout(resolve, 50));
 
   switch (action) {
     case "login": {
@@ -1264,9 +1269,49 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
       return { success: true, reportId: entry.LiveWeightID };
     }
 
+    case "submitMTN": {
+      const mtnId = generateId("MTN");
+      return { success: true, reportId: mtnId };
+    }
+
+    case "updateOpeningStock": {
+      const shopId = String(data.shopId || "");
+      const productId = String(data.productId || "");
+      const openingStock = toNumber(data.openingStock);
+      const stocks = getStocks();
+      // Find latest stock entry for this shop+product and update, or create a synthetic one
+      const date = getLocalDateInputValue();
+      const existing = stocks.find((s) => s.ShopID === shopId && s.ProductID === productId && normalizeSheetDate(s.Date) === date);
+      if (existing) {
+        const idx = stocks.indexOf(existing);
+        stocks[idx] = { ...existing, ActualClosing: openingStock };
+        setStored(STORAGE_KEYS.stocks, stocks);
+      }
+      return { success: true };
+    }
+
     default:
       return { success: false, error: `Action not supported in Mock API: ${action}` };
   }
+}
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 min for static data
+const SHORT_CACHE_TTL = 60 * 1000; // 1 min for dynamic data
+const cache = new Map<string, { data: ApiResponse; timestamp: number; ttl: number }>();
+
+function getCached(key: string): ApiResponse | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > entry.ttl) { cache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(key: string, data: ApiResponse, ttl?: number) {
+  cache.set(key, { data, timestamp: Date.now(), ttl: ttl || CACHE_TTL });
+}
+
+function invalidateCache() {
+  cache.clear();
 }
 
 async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
@@ -1276,27 +1321,65 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
     return callMockApi(action, data);
   }
 
+  // Cacheable reads - static data (5 min cache)
+  const staticReads = ["getShops", "getProducts", "getUsers", "getEmployees"];
+  // Cacheable reads - dynamic data (1 min cache)
+  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate"];
+  const cacheKey = `${action}_${JSON.stringify(data)}`;
+
+  if (staticReads.includes(action)) {
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+  }
+  if (dynamicReads.includes(action)) {
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+  }
+
+  // Employee write actions: save locally FIRST (instant), then queue for background sync
+  const localFirstActions = ["submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "submitMTN", "submitLiveWeight"];
+  if (localFirstActions.includes(action)) {
+    const localResult = await callMockApi(action, data);
+    if (localResult.success) {
+      addToSyncQueue(action, data);
+      triggerSync();
+      invalidateCache();
+    }    return localResult;
+  }
+
+  // All other write actions invalidate cache
+  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit"];
+  if (writeActions.includes(action)) {
+    invalidateCache();
+  }
+
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  const timeout = window.setTimeout(() => controller.abort(), 25000);
 
   try {
     const response = await fetch(url, {
       method: "POST",
       mode: "cors",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action, data }),
       signal: controller.signal
     });
 
-    if (!response.ok) {
-      throw new Error(`Server returned HTTP status ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = (await response.json()) as ApiResponse;
+
+    if (result.success) {
+      if (staticReads.includes(action)) setCache(cacheKey, result, CACHE_TTL);
+      else if (dynamicReads.includes(action)) setCache(cacheKey, result, SHORT_CACHE_TTL);
     }
 
-    return (await response.json()) as ApiResponse;
+    return result;
   } catch (error) {
-    console.error(`[API Client] ${action} failed; using mock fallback:`, error);
+    console.error(`[API] ${action} failed:`, error);
+    if (writeActions.includes(action)) {
+      return { success: false, error: "Network error. Check connection and try again." };
+    }
+    // For reads: fallback to local mock data
     return callMockApi(action, data);
   } finally {
     window.clearTimeout(timeout);
@@ -1305,6 +1388,28 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
 
 export const appsScriptClient = {
   login: (phone: string, pin: string) => callApi("login", { phone, pin }),
+  // After login, sync all data from server to local storage
+  syncAfterLogin: async (userId: string, shopId: string): Promise<void> => {
+    const url = (import.meta.env.VITE_APPS_SCRIPT_URL || "").trim();
+    if (!url) return; // mock mode, no need to sync
+    try {
+      // Pull products, shops, employee reports, opening stock in parallel
+      const [shopsRes, productsRes, reportsRes, stockRes] = await Promise.all([
+        callApi("getShops"),
+        callApi("getProducts"),
+        callApi("getMyReports", { employeeId: userId }),
+        callApi("getOpeningStock", { shopId, employeeId: userId })
+      ]);
+      // These are now cached in memory + will be available instantly
+      // Also pull today's sales/stock if any exist on server
+      const today = getLocalDateInputValue();
+      await Promise.all([
+        callApi("getDailySalesReport", { shopId, startDate: today, endDate: today }),
+        callApi("getDailyStockReport", { shopId, startDate: today, endDate: today }),
+        callApi("getTodayCollection", { shopId, date: today })
+      ]);
+    } catch { /* silent - best effort sync */ }
+  },
   getShops: () => callApi("getShops"),
   createShop: (shopData: { shopName: string; location: string; inchargeName: string; inchargeContact: string; status: string }) =>
     callApi("createShop", shopData),
@@ -1388,5 +1493,17 @@ export const appsScriptClient = {
     injuredBirds: number;
     shortage: number;
     netAcceptedBirds: number;
-  }) => callApi("submitLiveWeight", payload)
+  }) => callApi("submitLiveWeight", payload),
+  submitMTN: (payload: {
+    mtnNo: string;
+    mtnDate: string;
+    from: string;
+    to: string;
+    shopId: string;
+    shopName: string;
+    employeeId: string;
+    employeeName: string;
+    items: Array<{ productId: string; productName: string; category: string; uom: string; qtyAsPerMTN: number; qtyReceived: number; variance: number }>;
+  }) => callApi("submitMTN", payload),
+  updateOpeningStock: (payload: { shopId: string; productId: string; openingStock: number }) => callApi("updateOpeningStock", payload)
 };
