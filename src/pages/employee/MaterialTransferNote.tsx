@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowLeft, CheckCircle2, Send } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { UserSession } from "../../types";
-import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
+import { formatDateForDisplay } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
 
 interface AdminMtnItem {
@@ -51,20 +51,39 @@ export const MaterialTransferNote: React.FC = () => {
     loadPendingMtns();
   }, [navigate, user]);
 
-  const loadPendingMtns = () => {
+  const loadPendingMtns = async () => {
     setLoading(true);
     try {
-      // Load admin-sent MTNs for this employee's shop
-      const raw = localStorage.getItem("opti_mtn_source");
-      if (raw) {
-        const all = JSON.parse(raw) as AdminMtn[];
-        const forMyShop = all.filter((m) => m.toShopId === user?.shopId);
-        setPendingMtns(forMyShop);
-      }
-      // Load received history
-      const receivedRaw = localStorage.getItem("opti_mtn_received");
-      if (receivedRaw) {
-        setReceivedMtns(JSON.parse(receivedRaw));
+      if (!user?.shopId) { setLoading(false); return; }
+      const res = await appsScriptClient.getMTNsForShop(user.shopId);
+      if (res.success && (res as any).mtns) {
+        const allMtns = (res as any).mtns as Array<{ MTNID: string; MTNNo: string; MTNDate: string; From: string; ToShopID: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Variance: number; Status: string; Complaint: string }>;
+        // Group by MTNNo
+        const grouped = new Map<string, AdminMtn>();
+        allMtns.forEach((row) => {
+          if (!grouped.has(row.MTNNo)) {
+            grouped.set(row.MTNNo, { mtnNo: row.MTNNo, mtnDate: String(row.MTNDate).split("T")[0], from: row.From, toShopId: row.ToShopID, toShopName: row.ToShopName, items: [] });
+          }
+          grouped.get(row.MTNNo)!.items.push({ itemName: row.ProductName, quantity: Number(row.QtyAsPerMTN), rate: 0, amount: 0 });
+        });
+        // Separate pending (Sent) and received
+        const pending: AdminMtn[] = [];
+        const received: Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: ReceiptItem[]; receivedAt: string }> = [];
+        grouped.forEach((mtn) => {
+          const mtnRows = allMtns.filter((r) => r.MTNNo === mtn.mtnNo);
+          const hasReceived = mtnRows.some((r) => r.Status === "Received");
+          if (hasReceived) {
+            received.push({
+              mtnNo: mtn.mtnNo, mtnDate: mtn.mtnDate, from: mtn.from, to: mtn.toShopName,
+              items: mtnRows.map((r) => ({ itemName: r.ProductName, sentQty: Number(r.QtyAsPerMTN), receivedQty: Number(r.QtyReceived), rate: 0, variance: Number(r.Variance) })),
+              receivedAt: ""
+            });
+          } else {
+            pending.push(mtn);
+          }
+        });
+        setPendingMtns(pending);
+        setReceivedMtns(received);
       }
     } catch { /* */ }
     finally { setLoading(false); }
@@ -109,6 +128,7 @@ export const MaterialTransferNote: React.FC = () => {
         shopName: selectedMtn.toShopName,
         employeeId: user.employeeId,
         employeeName: user.name,
+        complaint: complaintNote || undefined,
         items: filled.map((item) => ({
           productId: "",
           productName: item.itemName,
@@ -120,28 +140,6 @@ export const MaterialTransferNote: React.FC = () => {
         }))
       });
       if (res.success) {
-        // Mark this MTN as received so it doesn't show again
-        try {
-          const raw = localStorage.getItem("opti_mtn_source");
-          if (raw) {
-            const all = JSON.parse(raw) as AdminMtn[];
-            const updated = all.filter((m) => m.mtnNo !== selectedMtn.mtnNo);
-            localStorage.setItem("opti_mtn_source", JSON.stringify(updated));
-          }
-        } catch { /* */ }
-        // Save to received history
-        try {
-          const history = JSON.parse(localStorage.getItem("opti_mtn_received") || "[]");
-          history.push({
-            mtnNo: selectedMtn.mtnNo,
-            mtnDate: selectedMtn.mtnDate,
-            from: selectedMtn.from,
-            to: selectedMtn.toShopName,
-            items: receiptItems.filter((item) => item.receivedQty > 0),
-            receivedAt: new Date().toISOString()
-          });
-          localStorage.setItem("opti_mtn_received", JSON.stringify(history));
-        } catch { /* */ }
         setSuccess(true);
       }
       else { setError(res.error || "Submission failed."); }

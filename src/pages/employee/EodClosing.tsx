@@ -258,8 +258,7 @@ export const EodClosing: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
-      handleSaveDraft();
-      setError("Network error. Draft saved.");
+      setError("Network error. Check connection and try again.");
       setConfirmOpen(false);
     } finally {
       setSubmitting(false);

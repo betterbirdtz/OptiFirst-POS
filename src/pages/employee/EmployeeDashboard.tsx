@@ -34,11 +34,17 @@ export const EmployeeDashboard: React.FC = () => {
         if (user.shopId) {
           const collRes = await appsScriptClient.getTodayCollection({ shopId: user.shopId, date: getLocalDateInputValue() });
           if (collRes.success && collRes.collection) setTodayCollection(collRes.collection);
+          const mtnRes = await appsScriptClient.getMTNsForShop(user.shopId);
+          if (mtnRes.success && mtnRes.mtns) {
+            const today = getLocalDateInputValue();
+            const todayMtnNos = new Set(
+              mtnRes.mtns
+                .filter((mtn) => String(mtn.MTNDate).split("T")[0] === today)
+                .map((mtn) => mtn.MTNNo)
+            );
+            setTodayMtnCount(todayMtnNos.size);
+          }
         }
-        try {
-          const raw = localStorage.getItem("opti_mtns");
-          if (raw) { const mtns = JSON.parse(raw) as Array<{ mtnDate: string }>; setTodayMtnCount(mtns.filter((m) => m.mtnDate === getLocalDateInputValue()).length); }
-        } catch { /* */ }
       } catch { /* */ }
       finally { setLoading(false); }
     };

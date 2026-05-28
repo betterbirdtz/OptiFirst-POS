@@ -16,6 +16,10 @@ const SHEETS = {
     name: "Products",
     headers: ["ProductID", "ProductName", "Category", "UOM", "DefaultRate", "Active", "CreatedAt"]
   },
+  OpeningStock: {
+    name: "OpeningStock",
+    headers: ["ShopID", "ProductID", "OpeningStock", "UpdatedAt"]
+  },
   DailyReports: {
     name: "DailyReports",
     headers: ["ReportID", "ShopID", "ShopName", "Date", "EmployeeID", "EmployeeName", "SalesSubmitted", "StockSubmitted", "Status", "SubmittedAt", "ApprovedBy", "ApprovedAt"]
@@ -39,18 +43,19 @@ const SHEETS = {
   Logs: {
     name: "Logs",
     headers: ["LogID", "UserID", "Action", "Details", "CreatedAt"]
+  },
+  MTN: {
+    name: "MTN",
+    headers: ["MTNID", "MTNNo", "MTNDate", "From", "ToShopID", "ToShopName", "EmployeeID", "EmployeeName", "ProductName", "QtyAsPerMTN", "QtyReceived", "Variance", "Status", "Complaint", "CreatedAt", "ProductID"]
+  },
+  ShopPrices: {
+    name: "ShopPrices",
+    headers: ["ShopID", "ProductID", "Rate", "UpdatedAt"]
   }
 };
 
 function setupSheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  Object.keys(SHEETS).forEach(function (key) {
-    const config = SHEETS[key];
-    let sheet = ss.getSheetByName(config.name);
-    if (!sheet) sheet = ss.insertSheet(config.name);
-    ensureHeaders(sheet, config.headers);
-  });
-
+  ensureConfiguredSheets();
   seedShops();
   seedUsers();
   seedProducts();
@@ -84,6 +89,9 @@ function doPost(e) {
     let result;
 
     switch (action) {
+      case "setupSheets":
+        result = { success: true, message: setupSheets() };
+        break;
       case "login":
         result = handleLogin(data);
         break;
@@ -110,6 +118,12 @@ function doPost(e) {
         break;
       case "getProducts":
         result = { success: true, products: getObjects(SHEETS.Products.name) };
+        break;
+      case "getShopPrices":
+        result = handleGetShopPrices(data);
+        break;
+      case "saveShopPrices":
+        result = handleSaveShopPrices(data);
         break;
       case "createProduct":
         result = handleCreateProduct(data);
@@ -202,6 +216,9 @@ function doPost(e) {
       case "submitMTN":
         result = handleSubmitMTN(data);
         break;
+      case "getMTNsForShop":
+        result = handleGetMTNsForShop(data);
+        break;
       case "updateOpeningStock":
         result = handleUpdateOpeningStock(data);
         break;
@@ -272,10 +289,34 @@ function seedProducts() {
   ]);
 }
 
+function ensureConfiguredSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Object.keys(SHEETS).forEach(function (key) {
+    const config = SHEETS[key];
+    let sheet = ss.getSheetByName(config.name);
+    if (!sheet) sheet = ss.insertSheet(config.name);
+    ensureHeaders(sheet, config.headers);
+  });
+}
+
+function getSheetConfig(sheetName) {
+  const keys = Object.keys(SHEETS);
+  for (let i = 0; i < keys.length; i++) {
+    const config = SHEETS[keys[i]];
+    if (config.name === sheetName) return config;
+  }
+  return null;
+}
+
 function getSheet(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) throw new Error("Missing sheet: " + sheetName + ". Run setupSheets() first.");
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    const config = getSheetConfig(sheetName);
+    if (!config) throw new Error("Missing sheet: " + sheetName + ". Run setupSheets() first.");
+    sheet = ss.insertSheet(config.name);
+    ensureHeaders(sheet, config.headers);
+  }
   return sheet;
 }
 
@@ -595,6 +636,24 @@ function handleUpdateProduct(data) {
   return ok ? { success: true } : { success: false, error: "Product not found." };
 }
 
+function handleGetShopPrices(data) {
+  var shopId = String(data.shopId || "");
+  var prices = getObjects(SHEETS.ShopPrices.name);
+  if (shopId) prices = prices.filter(function(row) { return String(row.ShopID) === shopId; });
+  return { success: true, prices: prices };
+}
+
+function handleSaveShopPrices(data) {
+  var shopId = String(data.shopId || "");
+  if (!shopId) return { success: false, error: "Shop is required." };
+  deleteRowsWhere(SHEETS.ShopPrices.name, function(row) { return String(row.ShopID) === shopId; });
+  var rows = (data.prices || []).map(function(p) {
+    return [shopId, p.productId || p.ProductID || "", toNumber(p.rate === undefined ? p.Rate : p.rate), nowIso()];
+  }).filter(function(row) { return row[1]; });
+  if (rows.length > 0) appendRows(SHEETS.ShopPrices.name, rows);
+  return { success: true };
+}
+
 function validateSubmission(data, requireSales, requireStock) {
   if (!data) return "Report payload is required.";
   if (!data.shopId) return "Shop is required.";
@@ -647,12 +706,16 @@ function handleGetOpeningStock(data) {
   const date = normalizeDate(data.date || new Date());
   const shop = findShop(shopId) || {};
   const products = getObjects(SHEETS.Products.name).filter(function (product) { return product.Active === "Yes"; });
+  const overrides = getObjects(SHEETS.OpeningStock.name).filter(function(row) {
+    return String(row.ShopID) === String(shopId);
+  });
   const stockRows = getObjects(SHEETS.DailyStockEntries.name)
     .filter(function (row) { return String(row.ShopID) === String(shopId) && normalizeDate(row.Date) < date; })
     .sort(function (a, b) { return String(normalizeDate(b.Date) + b.CreatedAt).localeCompare(String(normalizeDate(a.Date) + a.CreatedAt)); });
 
   const openingStock = products.map(function (product) {
     const last = stockRows.find(function (row) { return String(row.ProductID) === String(product.ProductID); });
+    const override = overrides.find(function(row) { return String(row.ProductID) === String(product.ProductID); });
     return {
       ShopID: shopId,
       ShopName: shop.ShopName || "",
@@ -660,11 +723,51 @@ function handleGetOpeningStock(data) {
       ProductName: product.ProductName,
       Category: product.Category,
       UOM: product.UOM,
-      CurrentOpeningStock: last ? toNumber(last.ActualClosing) : 0,
-      LastUpdatedDate: last ? normalizeDate(last.Date) : ""
+      CurrentOpeningStock: override ? toNumber(override.OpeningStock) : last ? toNumber(last.ActualClosing) : 0,
+      LastUpdatedDate: override ? override.UpdatedAt : last ? normalizeDate(last.Date) : ""
     };
   });
   return { success: true, openingStock: openingStock };
+}
+
+function resolveProductId(productId, productName) {
+  if (productId) return String(productId);
+  const product = getObjects(SHEETS.Products.name).find(function(row) {
+    return String(row.ProductName) === String(productName || "");
+  });
+  return product ? String(product.ProductID) : "";
+}
+
+function getCurrentOpeningStockValue(shopId, productId) {
+  const today = normalizeDate(new Date());
+  const override = getObjects(SHEETS.OpeningStock.name).find(function(row) {
+    return String(row.ShopID) === String(shopId) && String(row.ProductID) === String(productId);
+  });
+  if (override) return toNumber(override.OpeningStock);
+
+  const last = getObjects(SHEETS.DailyStockEntries.name)
+    .filter(function(row) {
+      return String(row.ShopID) === String(shopId) && String(row.ProductID) === String(productId) && normalizeDate(row.Date) < today;
+    })
+    .sort(function(a, b) {
+      return String(normalizeDate(b.Date) + b.CreatedAt).localeCompare(String(normalizeDate(a.Date) + a.CreatedAt));
+    })[0];
+  return last ? toNumber(last.ActualClosing) : 0;
+}
+
+function setOpeningStockValue(shopId, productId, openingStock) {
+  deleteRowsWhere(SHEETS.OpeningStock.name, function(row) {
+    return String(row.ShopID) === String(shopId) && String(row.ProductID) === String(productId);
+  });
+  appendRows(SHEETS.OpeningStock.name, [[shopId, productId, toNumber(openingStock), nowIso()]]);
+}
+
+function adjustOpeningStockForTransfer(shopId, productId, productName, deltaQty) {
+  const resolvedProductId = resolveProductId(productId, productName);
+  const delta = toNumber(deltaQty);
+  if (!shopId || !resolvedProductId || delta === 0) return;
+  const current = getCurrentOpeningStockValue(shopId, resolvedProductId);
+  setOpeningStockValue(shopId, resolvedProductId, current + delta);
 }
 
 function handleGetTodayReport(data) {
@@ -1215,31 +1318,100 @@ function handleSubmitLiveWeight(data) {
 
 function handleSubmitMTN(data) {
   if (!data.shopId || !data.mtnNo) return { success: false, error: "MTN No and Shop are required." };
-  var mtnId = makeId("MTN");
   var now = nowIso();
   var items = Array.isArray(data.items) ? data.items : [];
+  var isReceipt = items.some(function(item) { return toNumber(item.qtyReceived) > 0; });
+
+  if (isReceipt) {
+    var sheet = getSheet(SHEETS.MTN.name);
+    if (sheet.getLastRow() <= 1) return { success: false, error: "MTN not found." };
+    var values = sheet.getDataRange().getValues();
+    var headers = values[0];
+    var mtnNoIdx = headers.indexOf("MTNNo");
+    var shopIdx = headers.indexOf("ToShopID");
+    var productIdx = headers.indexOf("ProductName");
+    var employeeIdIdx = headers.indexOf("EmployeeID");
+    var employeeNameIdx = headers.indexOf("EmployeeName");
+    var qtyReceivedIdx = headers.indexOf("QtyReceived");
+    var varianceIdx = headers.indexOf("Variance");
+    var statusIdx = headers.indexOf("Status");
+    var complaintIdx = headers.indexOf("Complaint");
+    var productIdIdx = headers.indexOf("ProductID");
+    var updated = 0;
+
+    items.forEach(function(item) {
+      for (var i = 1; i < values.length; i++) {
+        if (
+          String(values[i][mtnNoIdx]) === String(data.mtnNo) &&
+          String(values[i][shopIdx]) === String(data.shopId) &&
+          String(values[i][productIdx]) === String(item.productName || "")
+        ) {
+          var previousReceived = toNumber(values[i][qtyReceivedIdx]);
+          var nextReceived = toNumber(item.qtyReceived);
+          sheet.getRange(i + 1, employeeIdIdx + 1).setValue(data.employeeId || "");
+          sheet.getRange(i + 1, employeeNameIdx + 1).setValue(data.employeeName || "");
+          sheet.getRange(i + 1, qtyReceivedIdx + 1).setValue(nextReceived);
+          sheet.getRange(i + 1, varianceIdx + 1).setValue(toNumber(item.variance));
+          sheet.getRange(i + 1, statusIdx + 1).setValue("Received");
+          sheet.getRange(i + 1, complaintIdx + 1).setValue(data.complaint || "");
+          if (productIdIdx >= 0 && item.productId) sheet.getRange(i + 1, productIdIdx + 1).setValue(item.productId);
+          adjustOpeningStockForTransfer(data.shopId, item.productId || (productIdIdx >= 0 ? values[i][productIdIdx] : ""), item.productName, nextReceived - previousReceived);
+          updated++;
+          break;
+        }
+      }
+    });
+
+    if (updated === 0) return { success: false, error: "MTN not found." };
+    logAction(data.employeeId || "EMPLOYEE", "RECEIVE_MTN", "MTN " + data.mtnNo + " received by " + (data.employeeName || data.employeeId || ""));
+    return { success: true, reportId: String(data.mtnNo) };
+  }
+
+  var rows = [];
   
-  // Log the MTN receipt
-  logAction(data.employeeId || "ADMIN", "SUBMIT_MTN", "MTN " + data.mtnNo + " from " + data.from + " to " + data.to + " with " + items.length + " items");
-  
-  return { success: true, reportId: mtnId };
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    rows.push([
+      makeId("MTN"),
+      data.mtnNo,
+      data.mtnDate || normalizeDate(new Date()),
+      data.from || "HO",
+      data.shopId,
+      data.shopName || data.to || "",
+      data.employeeId || "",
+      data.employeeName || "",
+      item.productName || "",
+      toNumber(item.qtyAsPerMTN),
+      toNumber(item.qtyReceived),
+      toNumber(item.variance),
+      toNumber(item.qtyReceived) > 0 ? "Received" : "Sent",
+      data.complaint || "",
+      now,
+      item.productId || ""
+    ]);
+  }
+
+  if (rows.length > 0) {
+    appendRows(SHEETS.MTN.name, rows);
+  }
+
+  logAction(data.employeeId || "ADMIN", "SUBMIT_MTN", "MTN " + data.mtnNo + " from " + (data.from || "HO") + " to " + (data.shopName || data.to) + " with " + items.length + " items");
+  return { success: true, reportId: rows.length > 0 ? rows[0][0] : makeId("MTN") };
 }
 
 function handleUpdateOpeningStock(data) {
   if (!data.shopId || !data.productId) return { success: false, error: "Shop and Product are required." };
   var openingStock = toNumber(data.openingStock);
-  
-  // Find existing stock entry for today and update, or log the change
-  var date = normalizeDate(new Date());
-  var stocks = getObjects(SHEETS.DailyStockEntries.name);
-  var existing = stocks.find(function(s) {
-    return String(s.ShopID) === String(data.shopId) && String(s.ProductID) === String(data.productId) && normalizeDate(s.Date) === date;
-  });
-  
-  if (existing) {
-    updateObjectById(SHEETS.DailyStockEntries.name, "EntryID", existing.EntryID, { ActualClosing: openingStock });
-  }
-  
+
+  setOpeningStockValue(data.shopId, data.productId, openingStock);
+
   logAction("ADMIN", "UPDATE_OPENING_STOCK", "Product " + data.productId + " at shop " + data.shopId + " set to " + openingStock);
   return { success: true };
+}
+
+function handleGetMTNsForShop(data) {
+  var shopId = String(data.shopId || "");
+  var mtns = getObjects(SHEETS.MTN.name);
+  if (shopId) mtns = mtns.filter(function(row) { return String(row.ToShopID) === shopId; });
+  return { success: true, mtns: mtns };
 }

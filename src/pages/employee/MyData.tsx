@@ -29,23 +29,43 @@ export const MyData: React.FC = () => {
     if (!user) return;
     setLoading(true);
     try {
-      const [salesRes, stockRes, collRes] = await Promise.all([
+      const [salesRes, stockRes, collRes, mtnRes] = await Promise.all([
         appsScriptClient.getDailySalesReport({ shopId: user.shopId || "", startDate, endDate }),
         appsScriptClient.getDailyStockReport({ shopId: user.shopId || "", startDate, endDate }),
-        appsScriptClient.getCollections({ shopId: user.shopId || "", startDate, endDate })
+        appsScriptClient.getCollections({ shopId: user.shopId || "", startDate, endDate }),
+        appsScriptClient.getMTNsForShop(user.shopId || "")
       ]);
       setSales((salesRes.sales || []).filter((s) => s.EmployeeID === user.employeeId));
       setStocks((stockRes.stocks || []).filter((s) => s.EmployeeID === user.employeeId));
       setCollections((collRes.collections || []).filter((c) => c.EmployeeID === user.employeeId));
 
-      // Load MTNs from localStorage
-      try {
-        const raw = localStorage.getItem("opti_mtns");
-        if (raw) {
-          const all = JSON.parse(raw) as typeof mtns;
-          setMtns(all.filter((m) => m.mtnDate >= startDate && m.mtnDate <= endDate));
-        }
-      } catch { /* ignore */ }
+      const grouped = new Map<string, typeof mtns[number]>();
+      (mtnRes.mtns || [])
+        .filter((mtn) => {
+          const date = String(mtn.MTNDate).split("T")[0];
+          return date >= startDate && date <= endDate;
+        })
+        .forEach((mtn) => {
+          const key = mtn.MTNNo;
+          const existing = grouped.get(key) || {
+            id: mtn.MTNID,
+            mtnNo: mtn.MTNNo,
+            mtnDate: String(mtn.MTNDate).split("T")[0],
+            from: mtn.From,
+            to: mtn.ToShopName,
+            items: [],
+            complaintNote: mtn.Complaint || ""
+          };
+          existing.items.push({
+            itemName: mtn.ProductName,
+            quantity: Number(mtn.QtyReceived || mtn.QtyAsPerMTN || 0),
+            rate: 0,
+            amount: 0
+          });
+          if (mtn.Complaint) existing.complaintNote = mtn.Complaint;
+          grouped.set(key, existing);
+        });
+      setMtns(Array.from(grouped.values()));
 
       setLoaded(true);
     } catch { /* ignore */ }

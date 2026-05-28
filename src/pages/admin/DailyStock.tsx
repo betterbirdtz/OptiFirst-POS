@@ -21,6 +21,7 @@ export const DailyStock: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [mismatchOnly, setMismatchOnly] = useState(false);
+  const [mtnRows, setMtnRows] = useState<Array<{ MTNNo: string; MTNDate: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Variance: number; Status: string; Complaint: string }>>([]);
 
   const selectedShop = shops.find((shop) => shop.ShopID === shopId);
   const employeeFiltered = employeeId ? stocks.filter((s) => s.EmployeeID === employeeId) : stocks;
@@ -42,47 +43,36 @@ export const DailyStock: React.FC = () => {
 
   // MTN mismatches (from employee MTN receipts)
   const mtnMismatches = useMemo(() => {
-    try {
-      const raw = localStorage.getItem("opti_mtns");
-      if (!raw) return [];
-      const mtns = JSON.parse(raw) as Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: Array<{ itemName: string; quantity: number }>; complaintNote: string }>;
-      const adminRaw = localStorage.getItem("opti_mtn_source");
-      const adminMtns = adminRaw ? JSON.parse(adminRaw) as Array<{ mtnNo: string; mtnDate: string; toShopName: string; items: Array<{ itemName: string; quantity: number }> }> : [];
-
-      const results: Array<{ mtnNo: string; date: string; shop: string; product: string; sent: number; received: number; diff: number; complaint: string }> = [];
-
-      mtns.forEach((empMtn) => {
-        // Find matching admin MTN
-        const adminMtn = adminMtns.find((a) => a.mtnNo === empMtn.mtnNo);
-        if (!adminMtn) return;
-
-        empMtn.items.forEach((empItem) => {
-          if (empItem.quantity <= 0) return;
-          const adminItem = adminMtn.items.find((a) => a.itemName === empItem.itemName);
-          const sent = adminItem?.quantity || 0;
-          const received = empItem.quantity;
-          if (sent > 0 && sent !== received) {
-            results.push({ mtnNo: empMtn.mtnNo, date: empMtn.mtnDate, shop: empMtn.to, product: empItem.itemName, sent, received, diff: received - sent, complaint: empMtn.complaintNote || "" });
-          }
-        });
-      });
-
-      // Filter by date range
-      return results.filter((r) => r.date >= startDate && r.date <= endDate);
-    } catch { return []; }
-  }, [startDate, endDate]);
+    return mtnRows
+      .map((row) => ({
+        mtnNo: row.MTNNo,
+        date: String(row.MTNDate).split("T")[0],
+        shop: row.ToShopName,
+        product: row.ProductName,
+        sent: Number(row.QtyAsPerMTN || 0),
+        received: Number(row.QtyReceived || 0),
+        diff: Number(row.Variance || 0),
+        complaint: row.Complaint || "",
+        status: row.Status
+      }))
+      .filter((row) => row.date >= startDate && row.date <= endDate)
+      .filter((row) => row.status === "Received" && row.sent !== row.received);
+  }, [endDate, mtnRows, startDate]);
 
   const loadStocks = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [shopsResponse, stockResponse] = await Promise.all([
+      const [shopsResponse, stockResponse, mtnResponse] = await Promise.all([
         appsScriptClient.getShops(),
-        appsScriptClient.getDailyStockReport({ shopId: shopId || undefined, startDate, endDate })
+        appsScriptClient.getDailyStockReport({ shopId: shopId || undefined, startDate, endDate }),
+        appsScriptClient.getMTNsForShop(shopId || "")
       ]);
       if (shopsResponse.success && shopsResponse.shops) setShops(shopsResponse.shops);
       if (stockResponse.success && stockResponse.stocks) setStocks(stockResponse.stocks);
       else setError(stockResponse.error || "Failed to load stock report.");
+      if (mtnResponse.success && mtnResponse.mtns) setMtnRows(mtnResponse.mtns);
+      else setMtnRows([]);
       const empRes = await appsScriptClient.getEmployees();
       if (empRes.success && empRes.employees) setEmployees(empRes.employees);
     } catch (loadError) {

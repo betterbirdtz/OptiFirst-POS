@@ -4,7 +4,7 @@ import { AlertCircle, CheckCircle2, ClipboardList, Plus, RefreshCw, Send, Trash2
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { Product, Shop, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
-import { getLocalDateInputValue } from "../../utils/date";
+import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
 
 interface MtnItem {
@@ -16,18 +16,6 @@ interface MtnItem {
   amount: number;
 }
 
-interface SavedMtn {
-  id: string;
-  mtnNo: string;
-  mtnDate: string;
-  from: string;
-  toShopId: string;
-  toShopName: string;
-  items: MtnItem[];
-  narration: string;
-  createdAt: string;
-}
-
 export const AdminMTN: React.FC = () => {
   const navigate = useNavigate();
   const [user] = useState<UserSession | null>(() => getSessionUser());
@@ -37,9 +25,8 @@ export const AdminMTN: React.FC = () => {
   const [mtnDate, setMtnDate] = useState(getLocalDateInputValue());
   const [fromLocation, setFromLocation] = useState("Cold Room");
   const [toShopId, setToShopId] = useState("");
-  const [narration, setNarration] = useState("");
   const [items, setItems] = useState<MtnItem[]>([]);
-  const [savedMtns, setSavedMtns] = useState<SavedMtn[]>([]);
+  const [sentMtns, setSentMtns] = useState<Array<{ MTNNo: string; MTNDate: string; From: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Status: string }>>([]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -51,6 +38,7 @@ export const AdminMTN: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
+        await appsScriptClient.setupSheets();
         const [shopRes, prodRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getProducts()]);
         if (shopRes.success && shopRes.shops) { setShops(shopRes.shops.filter((s) => s.Status === "Active")); setToShopId(shopRes.shops[0]?.ShopID || ""); }
         if (prodRes.success && prodRes.products) {
@@ -58,17 +46,20 @@ export const AdminMTN: React.FC = () => {
           setProducts(active);
           setItems(active.map((p) => ({ productId: p.ProductID, productName: p.ProductName, uom: p.UOM, quantity: 0, rate: p.DefaultRate, amount: 0 })));
         }
-        loadSavedMtns();
+        loadSentMtns();
       } catch { setError("Failed to load data."); }
       finally { setLoading(false); }
     };
     load();
   }, [navigate, user]);
 
-  const loadSavedMtns = () => {
+  const loadSentMtns = async () => {
+    // Load all MTNs from all shops to show admin what was sent
     try {
-      const raw = localStorage.getItem("opti_admin_mtns");
-      if (raw) setSavedMtns(JSON.parse(raw));
+      const res = await appsScriptClient.getMTNsForShop("");
+      if (res.success && (res as any).mtns) {
+        setSentMtns((res as any).mtns);
+      }
     } catch { /* */ }
   };
 
@@ -103,54 +94,52 @@ export const AdminMTN: React.FC = () => {
 
     setSubmitting(true);
     const selectedShop = shops.find((s) => s.ShopID === toShopId);
-    const mtn: SavedMtn = {
-      id: `AMTN-${Date.now()}`,
-      mtnNo: mtnNo.trim(),
-      mtnDate,
-      from: fromLocation,
-      toShopId,
-      toShopName: selectedShop?.ShopName || "",
-      items: filledItems,
-      narration,
-      createdAt: new Date().toISOString()
-    };
-
-    // Save locally and also update employee-visible source items
-    const all = [...savedMtns, mtn];
-    localStorage.setItem("opti_admin_mtns", JSON.stringify(all));
-    setSavedMtns(all);
-
-    // Also save to employee MTN source (so employee sees what admin sent)
     try {
-      const empMtns = JSON.parse(localStorage.getItem("opti_mtn_source") || "[]");
-      empMtns.push({ mtnNo: mtn.mtnNo, mtnDate: mtn.mtnDate, from: mtn.from, toShopId: mtn.toShopId, toShopName: mtn.toShopName, items: filledItems.map((item) => ({ itemName: item.productName, location: mtn.from, quantity: item.quantity, rate: item.rate, amount: item.amount })) });
-      localStorage.setItem("opti_mtn_source", JSON.stringify(empMtns));
-    } catch { /* */ }
-
-    // Update opening stock for destination shop (add transferred quantities)
-    try {
-      for (const item of filledItems) {
-        await appsScriptClient.updateOpeningStock({
-          shopId: toShopId,
+      const res = await appsScriptClient.submitMTN({
+        mtnNo: mtnNo.trim(),
+        mtnDate,
+        from: fromLocation,
+        to: selectedShop?.ShopName || "",
+        shopId: toShopId,
+        shopName: selectedShop?.ShopName || "",
+        employeeId: "",
+        employeeName: "Admin",
+        items: filledItems.map((item) => ({
           productId: item.productId,
-          openingStock: item.quantity // This adds to the shop's opening stock
-        });
-      }
-    } catch { /* best effort */ }
+          productName: item.productName,
+          category: "",
+          uom: item.uom,
+          qtyAsPerMTN: item.quantity,
+          qtyReceived: 0,
+          variance: 0
+        }))
+      });
 
-    setSuccess(`MTN ${mtn.mtnNo} sent to ${mtn.toShopName} successfully.`);
-    setMtnNo("");
-    setNarration("");
-    setItems(products.map((p) => ({ productId: p.ProductID, productName: p.ProductName, uom: p.UOM, quantity: 0, rate: p.DefaultRate, amount: 0 })));
-    setSubmitting(false);
+      if (res.success) {
+        setSuccess(`MTN ${mtnNo.trim()} sent to ${selectedShop?.ShopName}. Saved to Google Sheet.`);
+        setMtnNo("");
+        setItems(products.map((p) => ({ productId: p.ProductID, productName: p.ProductName, uom: p.UOM, quantity: 0, rate: p.DefaultRate, amount: 0 })));
+        loadSentMtns();
+      } else {
+        setError(res.error || "Failed to save.");
+      }
+    } catch { setError("Network error."); }
+    finally { setSubmitting(false); }
   };
+
+  // Group sent MTNs by MTNNo for display
+  const groupedSent = Array.from(new Set(sentMtns.map((m) => m.MTNNo))).map((mtnNo) => {
+    const rows = sentMtns.filter((m) => m.MTNNo === mtnNo);
+    const first = rows[0];
+    return { mtnNo, mtnDate: first?.MTNDate || "", from: first?.From || "", toShopName: first?.ToShopName || "", items: rows, hasReceived: rows.some((r) => r.Status === "Received") };
+  });
 
   return (
     <div className="space-y-5 px-3 py-4 sm:px-6 sm:py-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-black flex items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />Internal Stock Movement</h1>
-          <p className="text-xs text-muted-foreground">Send stock from HO/Cold Room to shops. Employee will confirm receipt.</p>
+          <h1 className="text-xl font-black flex items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />Stock Transfer (MTN)</h1>
+          <p className="text-xs text-muted-foreground">Send stock to shops. All data saved to Google Sheet.</p>
         </div>
       </div>
 
@@ -161,31 +150,15 @@ export const AdminMTN: React.FC = () => {
         <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* MTN Header */}
           <section className="rounded-lg border border-border bg-card p-4 shadow-sm">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">MTN No. *</label>
-                <input value={mtnNo} onChange={(e) => setMtnNo(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Opti/MTN/00208" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">Date</label>
-                <input type="date" value={mtnDate} onChange={(e) => setMtnDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">From</label>
-                <input value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Cold Room" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">To (Shop) *</label>
-                <select value={toShopId} onChange={(e) => setToShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring">
-                  {shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}
-                </select>
-              </div>
+              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">MTN No. *</label><input value={mtnNo} onChange={(e) => setMtnNo(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Opti/MTN/00208" /></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">Date</label><input type="date" value={mtnDate} onChange={(e) => setMtnDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" /></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">From</label><input value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Cold Room" /></div>
+              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">To (Shop) *</label><select value={toShopId} onChange={(e) => setToShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring">{shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}</select></div>
             </div>
           </section>
 
-          {/* Items */}
           <section className="rounded-lg border border-border bg-card shadow-sm">
             <div className="flex items-center justify-between border-b border-border p-4">
               <h2 className="text-sm font-black">Items to Send</h2>
@@ -194,23 +167,12 @@ export const AdminMTN: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-secondary/50 text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="p-3 font-bold">Product</th>
-                    <th className="p-3 font-bold">UOM</th>
-                    <th className="p-3 font-bold text-right w-24">Quantity</th>
-                    <th className="p-3 font-bold text-right w-24">Rate</th>
-                    <th className="p-3 font-bold text-right w-28">Amount</th>
-                    <th className="p-3 w-10"></th>
-                  </tr>
+                  <tr><th className="p-3 font-bold">Product</th><th className="p-3 font-bold">UOM</th><th className="p-3 font-bold text-right w-24">Qty</th><th className="p-3 font-bold text-right w-24">Rate</th><th className="p-3 font-bold text-right w-28">Amount</th><th className="p-3 w-10"></th></tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
                   {items.map((item, i) => (
                     <tr key={i}>
-                      <td className="p-2">
-                        <select value={item.productId} onChange={(e) => changeProduct(i, e.target.value)} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-semibold outline-none">
-                          {products.map((p) => <option key={p.ProductID} value={p.ProductID}>{p.ProductName}</option>)}
-                        </select>
-                      </td>
+                      <td className="p-2"><select value={item.productId} onChange={(e) => changeProduct(i, e.target.value)} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-semibold outline-none">{products.map((p) => <option key={p.ProductID} value={p.ProductID}>{p.ProductName}</option>)}</select></td>
                       <td className="p-3 text-xs">{item.uom}</td>
                       <td className="p-2"><input type="number" min="0" step="0.01" value={item.quantity || ""} onChange={(e) => updateItem(i, "quantity", Number(e.target.value || 0))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none" placeholder="0" /></td>
                       <td className="p-2"><input type="number" min="0" step="0.01" value={item.rate || ""} onChange={(e) => updateItem(i, "rate", Number(e.target.value || 0))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none" /></td>
@@ -223,45 +185,26 @@ export const AdminMTN: React.FC = () => {
             </div>
           </section>
 
-          {/* Narration & Submit */}
-          <section className="rounded-lg border border-border bg-card p-4 shadow-sm space-y-3">
-            <div>
-              <label className="mb-1.5 block text-xs font-bold text-muted-foreground">Narration</label>
-              <textarea value={narration} onChange={(e) => setNarration(e.target.value)} placeholder="Stock transfer note" className="min-h-16 w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-            <button type="button" onClick={handleSubmit} disabled={submitting} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
-              <Send className="h-4 w-4" /> {submitting ? "Sending..." : "Send to Shop"}
-            </button>
-          </section>
+          <button type="button" onClick={handleSubmit} disabled={submitting} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+            <Send className="h-4 w-4" /> {submitting ? "Sending..." : "Send to Shop"}
+          </button>
 
-          {/* Sent MTNs */}
-          {savedMtns.length > 0 && (
+          {groupedSent.length > 0 && (
             <section className="rounded-lg border border-border bg-card shadow-sm">
-              <div className="border-b border-border p-4"><h2 className="text-sm font-black">Sent Vouchers ({savedMtns.length})</h2></div>
+              <div className="border-b border-border p-4"><h2 className="text-sm font-black">Sent Vouchers ({groupedSent.length})</h2></div>
               <div className="divide-y divide-border/60">
-                {savedMtns.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((mtn) => {
-                  // Check if employee received this
-                  let receivedStatus = "Pending";
-                  try {
-                    const receivedRaw = localStorage.getItem("opti_mtn_received");
-                    if (receivedRaw) {
-                      const received = JSON.parse(receivedRaw) as Array<{ mtnNo: string }>;
-                      if (received.some((r) => r.mtnNo === mtn.mtnNo)) receivedStatus = "Received";
-                    }
-                  } catch { /* */ }
-                  return (
-                    <div key={mtn.id} className="p-4 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-bold">{mtn.mtnNo}</p>
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${receivedStatus === "Received" ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{receivedStatus}</span>
-                          <p className="text-xs text-muted-foreground">{mtn.mtnDate}</p>
-                        </div>
+                {groupedSent.sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)).map((mtn) => (
+                  <div key={mtn.mtnNo} className="p-4 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold">{mtn.mtnNo}</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${mtn.hasReceived ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{mtn.hasReceived ? "Received" : "Pending"}</span>
+                        <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
                       </div>
-                      <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.length} items · {formatCurrency(mtn.items.reduce((s, i) => s + i.amount, 0))}</p>
                     </div>
-                  );
-                })}
+                    <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.length} items</p>
+                  </div>
+                ))}
               </div>
             </section>
           )}

@@ -27,10 +27,6 @@ import {
   toNumber
 } from "../utils/calculations";
 import { getDayName, getLocalDateInputValue, getMonthInputValue, normalizeSheetDate } from "../utils/date";
-import { addToSyncQueue, triggerSync, startSyncEngine } from "../utils/syncEngine";
-
-// Start background sync on module load
-startSyncEngine();
 
 export interface ApiResponse {
   success: boolean;
@@ -63,9 +59,30 @@ export interface ApiResponse {
   employeeId?: string;
   productId?: string;
   liveWeight?: unknown[];
+  mtns?: MTNRow[];
+  prices?: ShopPriceRow[];
 }
 
 type ApiData = Record<string, unknown>;
+type ShopPriceRow = { ShopID: string; ProductID: string; Rate: number; UpdatedAt?: string };
+type OpeningStockOverrideRow = { ShopID: string; ProductID: string; OpeningStock: number; UpdatedAt?: string };
+type MTNRow = {
+  MTNID: string;
+  MTNNo: string;
+  MTNDate: string;
+  From: string;
+  ToShopID: string;
+  ToShopName: string;
+  EmployeeID: string;
+  EmployeeName: string;
+  ProductName: string;
+  QtyAsPerMTN: number;
+  QtyReceived: number;
+  Variance: number;
+  Status: string;
+  Complaint: string;
+  CreatedAt: string;
+};
 
 const MOCK_SCHEMA_VERSION = "2026-05-v2-shops-mtn-pricing";
 
@@ -79,7 +96,10 @@ const STORAGE_KEYS = {
   stocks: "opti_daily_stock_entries",
   collections: "opti_collections",
   liveWeight: "opti_live_weight",
-  logs: "opti_logs"
+  logs: "opti_logs",
+  mtn: "mock_mtn_rows",
+  shopPrices: "mock_shop_prices",
+  openingStock: "mock_opening_stock"
 };
 
 const legacyKeys = [
@@ -103,17 +123,24 @@ export const isMockMode = (): boolean => {
   return !url || url.includes("YOUR_DEPLOYED_ID_HERE");
 };
 
+const mockDb: Record<string, unknown[]> = {};
+let mockDbVersion = "";
+
+function cloneRows<T>(rows: T[]): T[] {
+  return JSON.parse(JSON.stringify(rows)) as T[];
+}
+
+function hasStored(key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(mockDb, key);
+}
+
 function parseStored<T>(key: string, fallback: T[] = []): T[] {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : fallback;
-  } catch {
-    return fallback;
-  }
+  const rows = mockDb[key] as T[] | undefined;
+  return rows ? cloneRows(rows) : fallback;
 }
 
 function setStored<T>(key: string, value: T[]) {
-  localStorage.setItem(key, JSON.stringify(value));
+  mockDb[key] = cloneRows(value);
 }
 
 function generateId(prefix: string): string {
@@ -125,20 +152,22 @@ function nowIso(): string {
 }
 
 function resetMockDbIfNeeded() {
-  if (localStorage.getItem(STORAGE_KEYS.version) === MOCK_SCHEMA_VERSION) return;
+  if (mockDbVersion === MOCK_SCHEMA_VERSION) return;
 
   Object.values(STORAGE_KEYS).forEach((key) => {
-    if (key !== STORAGE_KEYS.version) localStorage.removeItem(key);
+    delete mockDb[key];
   });
-  legacyKeys.forEach((key) => localStorage.removeItem(key));
-  localStorage.setItem(STORAGE_KEYS.version, MOCK_SCHEMA_VERSION);
+  legacyKeys.forEach((key) => {
+    delete mockDb[key];
+  });
+  mockDbVersion = MOCK_SCHEMA_VERSION;
 }
 
 function seedMockDb() {
   resetMockDbIfNeeded();
   const createdAt = nowIso();
 
-  if (!localStorage.getItem(STORAGE_KEYS.shops)) {
+  if (!hasStored(STORAGE_KEYS.shops)) {
     setStored<Shop>(STORAGE_KEYS.shops, [
       {
         ShopID: "SHOP001",
@@ -170,7 +199,7 @@ function seedMockDb() {
     ]);
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.users)) {
+  if (!hasStored(STORAGE_KEYS.users)) {
     setStored<User>(STORAGE_KEYS.users, [
       {
         UserID: "USR001",
@@ -219,7 +248,7 @@ function seedMockDb() {
     ]);
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.products)) {
+  if (!hasStored(STORAGE_KEYS.products)) {
     setStored<Product>(STORAGE_KEYS.products, [
       { ProductID: "PROD001", ProductName: "Live Chicken", Category: "Chicken", UOM: "KG", DefaultRate: 7500, Active: "Yes", CreatedAt: createdAt },
       { ProductID: "PROD002", ProductName: "Dressed Chicken", Category: "Chicken", UOM: "KG", DefaultRate: 9500, Active: "Yes", CreatedAt: createdAt },
@@ -230,12 +259,15 @@ function seedMockDb() {
     ]);
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.reports)) setStored<DailyReport>(STORAGE_KEYS.reports, []);
-  if (!localStorage.getItem(STORAGE_KEYS.sales)) setStored<DailySalesEntry>(STORAGE_KEYS.sales, []);
-  if (!localStorage.getItem(STORAGE_KEYS.stocks)) setStored<DailyStockEntry>(STORAGE_KEYS.stocks, []);
-  if (!localStorage.getItem(STORAGE_KEYS.collections)) setStored<CollectionEntry>(STORAGE_KEYS.collections, []);
-  if (!localStorage.getItem(STORAGE_KEYS.liveWeight)) setStored<unknown>(STORAGE_KEYS.liveWeight, []);
-  if (!localStorage.getItem(STORAGE_KEYS.logs)) setStored<unknown>(STORAGE_KEYS.logs, []);
+  if (!hasStored(STORAGE_KEYS.reports)) setStored<DailyReport>(STORAGE_KEYS.reports, []);
+  if (!hasStored(STORAGE_KEYS.sales)) setStored<DailySalesEntry>(STORAGE_KEYS.sales, []);
+  if (!hasStored(STORAGE_KEYS.stocks)) setStored<DailyStockEntry>(STORAGE_KEYS.stocks, []);
+  if (!hasStored(STORAGE_KEYS.collections)) setStored<CollectionEntry>(STORAGE_KEYS.collections, []);
+  if (!hasStored(STORAGE_KEYS.liveWeight)) setStored<unknown>(STORAGE_KEYS.liveWeight, []);
+  if (!hasStored(STORAGE_KEYS.logs)) setStored<unknown>(STORAGE_KEYS.logs, []);
+  if (!hasStored(STORAGE_KEYS.mtn)) setStored<MTNRow>(STORAGE_KEYS.mtn, []);
+  if (!hasStored(STORAGE_KEYS.shopPrices)) setStored<ShopPriceRow>(STORAGE_KEYS.shopPrices, []);
+  if (!hasStored(STORAGE_KEYS.openingStock)) setStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, []);
 
   if (getReports().length === 0 && getSales().length === 0 && getCollections().length === 0) {
     seedSampleCollections(createdAt);
@@ -695,6 +727,7 @@ function updateMockCollectionByAdmin(data: ApiData, status?: CollectionEntry["St
 
 function getOpeningStock(shopId: string, date: string): OpeningStockEntry[] {
   const shop = getShops().find((item) => item.ShopID === shopId);
+  const overrides = parseStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, []).filter((row) => row.ShopID === shopId);
   const stocks = getStocks()
     .filter((row) => row.ShopID === shopId && normalizeSheetDate(row.Date) < normalizeSheetDate(date))
     .sort((a, b) => `${normalizeSheetDate(b.Date)}${b.CreatedAt}`.localeCompare(`${normalizeSheetDate(a.Date)}${a.CreatedAt}`));
@@ -703,6 +736,7 @@ function getOpeningStock(shopId: string, date: string): OpeningStockEntry[] {
     .filter((product) => product.Active === "Yes")
     .map((product) => {
       const lastStock = stocks.find((stock) => stock.ProductID === product.ProductID);
+      const override = overrides.find((row) => row.ProductID === product.ProductID);
       return {
         ShopID: shopId,
         ShopName: shop?.ShopName || "",
@@ -710,8 +744,8 @@ function getOpeningStock(shopId: string, date: string): OpeningStockEntry[] {
         ProductName: product.ProductName,
         Category: product.Category,
         UOM: product.UOM,
-        CurrentOpeningStock: toNumber(lastStock?.ActualClosing),
-        LastUpdatedDate: lastStock?.Date || ""
+        CurrentOpeningStock: override ? toNumber(override.OpeningStock) : toNumber(lastStock?.ActualClosing),
+        LastUpdatedDate: override?.UpdatedAt || lastStock?.Date || ""
       };
     });
 }
@@ -988,6 +1022,94 @@ function updateReportStatus(reportId: string, status: ReportStatus, adminId: str
   };
   setStored<DailyReport>(STORAGE_KEYS.reports, reports);
   return { success: true };
+}
+
+function getShopPrices(shopId?: string): ShopPriceRow[] {
+  return parseStored<ShopPriceRow>(STORAGE_KEYS.shopPrices, []).filter((row) => !shopId || row.ShopID === shopId);
+}
+
+function saveShopPrices(shopId: string, prices: Array<{ productId?: string; ProductID?: string; rate?: number; Rate?: number }>): ApiResponse {
+  if (!shopId) return { success: false, error: "Shop is required." };
+  const existing = parseStored<ShopPriceRow>(STORAGE_KEYS.shopPrices, []).filter((row) => row.ShopID !== shopId);
+  const rows = prices.map((price) => ({
+    ShopID: shopId,
+    ProductID: String(price.productId || price.ProductID || ""),
+    Rate: toNumber(price.rate ?? price.Rate),
+    UpdatedAt: nowIso()
+  })).filter((price) => price.ProductID);
+  setStored<ShopPriceRow>(STORAGE_KEYS.shopPrices, [...existing, ...rows]);
+  return { success: true };
+}
+
+function submitMockMTN(data: ApiData): ApiResponse {
+  const shopId = String(data.shopId || "");
+  const mtnNo = String(data.mtnNo || "").trim();
+  if (!shopId || !mtnNo) return { success: false, error: "MTN No and Shop are required." };
+
+  const now = nowIso();
+  const items = Array.isArray(data.items) ? data.items as Array<Record<string, unknown>> : [];
+  const mtns = parseStored<MTNRow>(STORAGE_KEYS.mtn, []);
+  const receiptMode = items.some((item) => toNumber(item.qtyReceived) > 0);
+
+  if (receiptMode) {
+    items.forEach((item) => {
+      const productName = String(item.productName || "");
+      const index = mtns.findIndex((row) => row.MTNNo === mtnNo && row.ToShopID === shopId && row.ProductName === productName);
+      const qtyReceived = toNumber(item.qtyReceived);
+      const variance = toNumber(item.variance);
+      if (index >= 0) {
+        mtns[index] = {
+          ...mtns[index],
+          EmployeeID: String(data.employeeId || ""),
+          EmployeeName: String(data.employeeName || ""),
+          QtyReceived: qtyReceived,
+          Variance: variance,
+          Status: "Received",
+          Complaint: String(data.complaint || mtns[index].Complaint || "")
+        };
+      } else {
+        mtns.push({
+          MTNID: generateId("MTN"),
+          MTNNo: mtnNo,
+          MTNDate: String(data.mtnDate || getLocalDateInputValue()),
+          From: String(data.from || "HO"),
+          ToShopID: shopId,
+          ToShopName: String(data.shopName || data.to || ""),
+          EmployeeID: String(data.employeeId || ""),
+          EmployeeName: String(data.employeeName || ""),
+          ProductName: productName,
+          QtyAsPerMTN: toNumber(item.qtyAsPerMTN),
+          QtyReceived: qtyReceived,
+          Variance: variance,
+          Status: "Received",
+          Complaint: String(data.complaint || ""),
+          CreatedAt: now
+        });
+      }
+    });
+    setStored<MTNRow>(STORAGE_KEYS.mtn, mtns);
+    return { success: true, reportId: mtns.find((row) => row.MTNNo === mtnNo)?.MTNID || generateId("MTN") };
+  }
+
+  const rows: MTNRow[] = items.map((item) => ({
+    MTNID: generateId("MTN"),
+    MTNNo: mtnNo,
+    MTNDate: String(data.mtnDate || getLocalDateInputValue()),
+    From: String(data.from || "HO"),
+    ToShopID: shopId,
+    ToShopName: String(data.shopName || data.to || ""),
+    EmployeeID: String(data.employeeId || ""),
+    EmployeeName: String(data.employeeName || ""),
+    ProductName: String(item.productName || ""),
+    QtyAsPerMTN: toNumber(item.qtyAsPerMTN),
+    QtyReceived: 0,
+    Variance: 0,
+    Status: "Sent",
+    Complaint: String(data.complaint || ""),
+    CreatedAt: now
+  }));
+  setStored<MTNRow>(STORAGE_KEYS.mtn, [...mtns, ...rows]);
+  return { success: true, reportId: rows[0]?.MTNID || generateId("MTN") };
 }
 
 async function callMockApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
@@ -1269,24 +1391,31 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
       return { success: true, reportId: entry.LiveWeightID };
     }
 
-    case "submitMTN": {
-      const mtnId = generateId("MTN");
-      return { success: true, reportId: mtnId };
+    case "submitMTN":
+      return submitMockMTN(data);
+
+    case "getMTNsForShop": {
+      const shopId = String(data.shopId || "");
+      const mtns = parseStored<MTNRow>(STORAGE_KEYS.mtn, []).filter((row) => !shopId || row.ToShopID === shopId);
+      return { success: true, mtns };
     }
+
+    case "getShopPrices": {
+      const shopId = data.shopId ? String(data.shopId) : "";
+      return { success: true, prices: getShopPrices(shopId) };
+    }
+
+    case "saveShopPrices":
+      return saveShopPrices(String(data.shopId || ""), Array.isArray(data.prices) ? data.prices as Array<{ productId?: string; ProductID?: string; rate?: number; Rate?: number }> : []);
 
     case "updateOpeningStock": {
       const shopId = String(data.shopId || "");
       const productId = String(data.productId || "");
+      if (!shopId || !productId) return { success: false, error: "Shop and Product are required." };
       const openingStock = toNumber(data.openingStock);
-      const stocks = getStocks();
-      // Find latest stock entry for this shop+product and update, or create a synthetic one
-      const date = getLocalDateInputValue();
-      const existing = stocks.find((s) => s.ShopID === shopId && s.ProductID === productId && normalizeSheetDate(s.Date) === date);
-      if (existing) {
-        const idx = stocks.indexOf(existing);
-        stocks[idx] = { ...existing, ActualClosing: openingStock };
-        setStored(STORAGE_KEYS.stocks, stocks);
-      }
+      const rows = parseStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, []).filter((row) => !(row.ShopID === shopId && row.ProductID === productId));
+      rows.push({ ShopID: shopId, ProductID: productId, OpeningStock: openingStock, UpdatedAt: nowIso() });
+      setStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, rows);
       return { success: true };
     }
 
@@ -1314,6 +1443,26 @@ function invalidateCache() {
   cache.clear();
 }
 
+async function runSetup(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      mode: "cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "setupSheets", data: {} })
+    });
+    if (!response.ok) return false;
+    const result = (await response.json()) as ApiResponse;
+    return result.success;
+  } catch {
+    return false;
+  }
+}
+
+function isMissingSheetError(result: ApiResponse): boolean {
+  return !result.success && typeof result.error === "string" && result.error.includes("Missing sheet:");
+}
+
 async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse> {
   const url = getApiUrl();
 
@@ -1324,7 +1473,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   // Cacheable reads - static data (5 min cache)
   const staticReads = ["getShops", "getProducts", "getUsers", "getEmployees"];
   // Cacheable reads - dynamic data (1 min cache)
-  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate"];
+  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getMTNsForShop", "getShopPrices"];
   const cacheKey = `${action}_${JSON.stringify(data)}`;
 
   if (staticReads.includes(action)) {
@@ -1336,9 +1485,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
     if (cached) return cached;
   }
 
-  // Employee write actions: save locally FIRST (instant), then queue for background sync
-  // ALL writes go directly to Google Sheets
-  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight"];
+  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight", "saveShopPrices"];
   if (writeActions.includes(action)) {
     invalidateCache();
   }
@@ -1347,16 +1494,28 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   const timeout = window.setTimeout(() => controller.abort(), 25000);
 
   try {
+    const requestBody = JSON.stringify({ action, data });
     const response = await fetch(url, {
       method: "POST",
       mode: "cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, data }),
+      body: requestBody,
       signal: controller.signal
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = (await response.json()) as ApiResponse;
+
+    if (isMissingSheetError(result) && action !== "setupSheets" && await runSetup(url)) {
+      const retryResponse = await fetch(url, {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: requestBody
+      });
+      if (!retryResponse.ok) throw new Error(`HTTP ${retryResponse.status}`);
+      return (await retryResponse.json()) as ApiResponse;
+    }
 
     if (result.success) {
       if (staticReads.includes(action)) setCache(cacheKey, result, CACHE_TTL);
@@ -1366,11 +1525,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
     return result;
   } catch (error) {
     console.error(`[API] ${action} failed:`, error);
-    if (writeActions.includes(action)) {
-      return { success: false, error: "Network error. Check connection and try again." };
-    }
-    // For reads: fallback to local mock data
-    return callMockApi(action, data);
+    return { success: false, error: "Network error. Check connection and try again." };
   } finally {
     window.clearTimeout(timeout);
   }
@@ -1378,7 +1533,8 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
 
 export const appsScriptClient = {
   login: (phone: string, pin: string) => callApi("login", { phone, pin }),
-  // After login, sync all data from server to local storage
+  setupSheets: () => callApi("setupSheets"),
+  // Warm frequently used reads after login.
   syncAfterLogin: async (userId: string, shopId: string): Promise<void> => {
     const url = (import.meta.env.VITE_APPS_SCRIPT_URL || "").trim();
     if (!url) return;
@@ -1491,6 +1647,10 @@ export const appsScriptClient = {
     employeeId: string;
     employeeName: string;
     items: Array<{ productId: string; productName: string; category: string; uom: string; qtyAsPerMTN: number; qtyReceived: number; variance: number }>;
+    complaint?: string;
   }) => callApi("submitMTN", payload),
+  getMTNsForShop: (shopId: string) => callApi("getMTNsForShop", { shopId }),
+  getShopPrices: (shopId?: string) => callApi("getShopPrices", { shopId }),
+  saveShopPrices: (shopId: string, prices: Array<{ productId: string; rate: number }>) => callApi("saveShopPrices", { shopId, prices }),
   updateOpeningStock: (payload: { shopId: string; productId: string; openingStock: number }) => callApi("updateOpeningStock", payload)
 };

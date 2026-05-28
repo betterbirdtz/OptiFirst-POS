@@ -29,6 +29,8 @@ export const ManageProducts: React.FC = () => {
   const [shops, setShops] = useState<Shop[]>([]);
   const [shopPrices, setShopPrices] = useState<Array<{ shopId: string; productId: string; rate: number }>>([]);
   const [pricingProductId, setPricingProductId] = useState<string | null>(null);
+  const [pricingSaving, setPricingSaving] = useState(false);
+  const [pricingError, setPricingError] = useState("");
 
   const loadProducts = async () => {
     setLoading(true);
@@ -59,10 +61,15 @@ export const ManageProducts: React.FC = () => {
 
   const loadShopsAndPrices = async () => {
     try {
-      const res = await appsScriptClient.getShops();
+      const [res, priceRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getShopPrices()]);
       if (res.success && res.shops) setShops(res.shops.filter((s) => s.Status === "Active"));
-      const raw = localStorage.getItem("opti_shop_prices");
-      if (raw) setShopPrices(JSON.parse(raw));
+      if (priceRes.success && priceRes.prices) {
+        setShopPrices(priceRes.prices.map((price) => ({
+          shopId: price.ShopID,
+          productId: price.ProductID,
+          rate: Number(price.Rate || 0)
+        })));
+      }
     } catch { /* */ }
   };
 
@@ -70,15 +77,37 @@ export const ManageProducts: React.FC = () => {
     return shopPrices.find((p) => p.shopId === shopId && p.productId === productId)?.rate;
   };
 
-  const updateShopRate = (shopId: string, productId: string, rate: number) => {
+  const updateShopRate = (shopId: string, productId: string, rate?: number) => {
     setShopPrices((current) => {
+      if (rate === undefined) return current.filter((p) => !(p.shopId === shopId && p.productId === productId));
       const idx = current.findIndex((p) => p.shopId === shopId && p.productId === productId);
       const next = [...current];
       if (idx >= 0) next[idx] = { shopId, productId, rate };
       else next.push({ shopId, productId, rate });
-      localStorage.setItem("opti_shop_prices", JSON.stringify(next));
       return next;
     });
+  };
+
+  const saveShopRates = async () => {
+    setPricingSaving(true);
+    setPricingError("");
+    try {
+      for (const shop of shops) {
+        const prices = shopPrices
+          .filter((price) => price.shopId === shop.ShopID)
+          .map((price) => ({ productId: price.productId, rate: price.rate }));
+        const response = await appsScriptClient.saveShopPrices(shop.ShopID, prices);
+        if (!response.success) {
+          setPricingError(response.error || `Failed to save rates for ${shop.ShopName}.`);
+          return;
+        }
+      }
+      setPricingProductId(null);
+    } catch {
+      setPricingError("Network connection error. Try again.");
+    } finally {
+      setPricingSaving(false);
+    }
   };
 
   const openAddModal = () => {
@@ -271,14 +300,17 @@ export const ManageProducts: React.FC = () => {
                   min="0"
                   step="0.01"
                   value={rate ?? ""}
-                  onChange={(e) => pricingProductId && updateShopRate(shop.ShopID, pricingProductId, Number(e.target.value || 0))}
+                  onChange={(e) => pricingProductId && updateShopRate(shop.ShopID, pricingProductId, e.target.value === "" ? undefined : Number(e.target.value))}
                   placeholder={String(products.find((p) => p.ProductID === pricingProductId)?.DefaultRate || 0)}
                   className="w-28 rounded-lg border border-input bg-background px-3 py-2 text-sm font-bold text-right outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
             );
           })}
-          <button type="button" onClick={() => setPricingProductId(null)} className="w-full rounded-lg bg-primary py-2.5 text-sm font-bold text-primary-foreground">Done</button>
+          {pricingError && <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-2 text-xs font-bold text-destructive">{pricingError}</p>}
+          <button type="button" onClick={saveShopRates} disabled={pricingSaving} className="w-full rounded-lg bg-primary py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-50">
+            {pricingSaving ? "Saving..." : "Save Rates"}
+          </button>
         </div>
       </Modal>
 

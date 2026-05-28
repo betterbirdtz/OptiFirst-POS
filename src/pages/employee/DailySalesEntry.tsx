@@ -197,7 +197,7 @@ export const DailySalesEntry: React.FC = () => {
       const res = await appsScriptClient.submitDailySales({ reportId, shopId: selectedShop.ShopID, shopName: selectedShop.ShopName, employeeId: user.employeeId, employeeName: user.name, date, salesEntries: currentSalesEntries, stockEntries: [] });
       if (res.success) { localStorage.removeItem("draft_sales"); setReportId(res.reportId); setConfirmOpen(false); setSuccess(true); }
       else { setError(res.error || "Submission failed."); setConfirmOpen(false); }
-    } catch { handleSaveDraft(); setError("Network error. Draft saved."); setConfirmOpen(false); }
+    } catch { setError("Network error. Check connection and try again."); setConfirmOpen(false); }
     finally { setSubmitting(false); }
   };
   const isAllSelected = bulkRows.length > 0 && bulkRows.every((r) => r.checked);

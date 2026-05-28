@@ -29,14 +29,20 @@ export const ShopPricing: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [shopRes, prodRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getProducts()]);
-        if (shopRes.success && shopRes.shops) { setShops(shopRes.shops.filter((s) => s.Status === "Active")); setSelectedShopId(shopRes.shops[0]?.ShopID || ""); }
+        const [shopRes, prodRes, priceRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getProducts(), appsScriptClient.getShopPrices()]);
+        if (shopRes.success && shopRes.shops) {
+          const active = shopRes.shops.filter((s) => s.Status === "Active");
+          setShops(active);
+          setSelectedShopId(active[0]?.ShopID || "");
+        }
         if (prodRes.success && prodRes.products) setProducts(prodRes.products.filter((p) => p.Active === "Yes"));
-        // Load saved shop prices
-        try {
-          const raw = localStorage.getItem("opti_shop_prices");
-          if (raw) setShopPrices(JSON.parse(raw));
-        } catch { /* */ }
+        if (priceRes.success && priceRes.prices) {
+          setShopPrices(priceRes.prices.map((price) => ({
+            shopId: price.ShopID,
+            productId: price.ProductID,
+            rate: Number(price.Rate || 0)
+          })));
+        }
       } catch { setError("Failed to load data."); }
       finally { setLoading(false); }
     };
@@ -48,9 +54,10 @@ export const ShopPricing: React.FC = () => {
     return sp?.rate;
   };
 
-  const updateRate = (productId: string, rate: number) => {
+  const updateRate = (productId: string, rate?: number) => {
     setShopPrices((current) => {
       const idx = current.findIndex((p) => p.shopId === selectedShopId && p.productId === productId);
+      if (rate === undefined) return current.filter((p) => !(p.shopId === selectedShopId && p.productId === productId));
       if (idx >= 0) {
         const next = [...current];
         next[idx] = { ...next[idx], rate };
@@ -60,12 +67,16 @@ export const ShopPricing: React.FC = () => {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true); setError(""); setSuccess("");
     try {
-      localStorage.setItem("opti_shop_prices", JSON.stringify(shopPrices));
-      setSuccess("Shop prices saved successfully.");
-    } catch { setError("Failed to save."); }
+      const prices = shopPrices
+        .filter((price) => price.shopId === selectedShopId)
+        .map((price) => ({ productId: price.productId, rate: price.rate }));
+      const response = await appsScriptClient.saveShopPrices(selectedShopId, prices);
+      if (response.success) setSuccess("Shop prices saved to Google Sheet.");
+      else setError(response.error || "Failed to save shop prices.");
+    } catch { setError("Failed to save shop prices."); }
     finally { setSaving(false); }
   };
 
@@ -132,7 +143,7 @@ export const ShopPricing: React.FC = () => {
                               min="0"
                               step="0.01"
                               value={shopRate ?? ""}
-                              onChange={(e) => updateRate(prod.ProductID, Number(e.target.value || 0))}
+                              onChange={(e) => updateRate(prod.ProductID, e.target.value === "" ? undefined : Number(e.target.value))}
                               placeholder={String(prod.DefaultRate)}
                               className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-bold text-right outline-none focus:ring-2 focus:ring-ring"
                             />

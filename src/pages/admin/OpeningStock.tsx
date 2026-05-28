@@ -31,6 +31,7 @@ export const OpeningStock: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
+        await appsScriptClient.setupSheets();
         const shopRes = await appsScriptClient.getShops();
         if (shopRes.success && shopRes.shops) {
           const active = shopRes.shops.filter((s) => s.Status === "Active");
@@ -45,25 +46,44 @@ export const OpeningStock: React.FC = () => {
 
   useEffect(() => {
     if (!selectedShopId) return;
-    const loadStock = async () => {
-      try {
-        const res = await appsScriptClient.getOpeningStock(selectedShopId, getLocalDateInputValue());
-        if (res.success && res.openingStock) setStockEntries(res.openingStock);
-      } catch { /* */ }
-    };
     loadStock();
     loadTransferLogs();
   }, [selectedShopId]);
 
-  const loadTransferLogs = () => {
+  const loadStock = async () => {
     try {
-      const raw = localStorage.getItem("opti_admin_mtns");
-      if (raw) {
-        const all = JSON.parse(raw) as Array<{ mtnNo: string; mtnDate: string; from: string; toShopId: string; toShopName: string; items: Array<{ productName: string; quantity: number }> }>;
-        setTransferLogs(all.filter((m) => m.toShopId === selectedShopId).sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)));
+      const res = await appsScriptClient.getOpeningStock(selectedShopId, getLocalDateInputValue());
+      if (res.success && res.openingStock) {
+        setStockEntries(res.openingStock);
       } else {
-        setTransferLogs([]);
+        setError(res.error || "Failed to load opening stock.");
       }
+    } catch {
+      setError("Failed to load opening stock.");
+    }
+  };
+
+  const loadTransferLogs = async () => {
+    try {
+      const res = await appsScriptClient.getMTNsForShop(selectedShopId);
+      if (!res.success || !res.mtns) {
+        setTransferLogs([]);
+        return;
+      }
+      const grouped = new Map<string, StockTransferLog>();
+      res.mtns.forEach((mtn) => {
+        const key = mtn.MTNNo;
+        const existing = grouped.get(key) || {
+          mtnNo: mtn.MTNNo,
+          mtnDate: String(mtn.MTNDate).split("T")[0],
+          from: mtn.From,
+          toShopName: mtn.ToShopName,
+          items: []
+        };
+        existing.items.push({ productName: mtn.ProductName, quantity: Number(mtn.QtyAsPerMTN || 0) });
+        grouped.set(key, existing);
+      });
+      setTransferLogs(Array.from(grouped.values()).sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)));
     } catch { setTransferLogs([]); }
   };
 
@@ -77,12 +97,22 @@ export const OpeningStock: React.FC = () => {
     setSaving(true); setError(""); setSuccess("");
     try {
       for (const entry of stockEntries) {
-        await appsScriptClient.updateOpeningStock({
+        const response = await appsScriptClient.updateOpeningStock({
           shopId: selectedShopId,
           productId: entry.ProductID,
           openingStock: entry.CurrentOpeningStock
         });
+        if (!response.success) {
+          setError(response.error || `Failed to save opening stock for ${entry.ProductName}.`);
+          return;
+        }
       }
+      const refreshed = await appsScriptClient.getOpeningStock(selectedShopId, getLocalDateInputValue());
+      if (!refreshed.success || !refreshed.openingStock) {
+        setError(refreshed.error || "Opening stock saved, but reload failed.");
+        return;
+      }
+      setStockEntries(refreshed.openingStock);
       setSuccess("Opening stock saved to Google Sheet.");
     } catch { setError("Failed to save opening stock."); }
     finally { setSaving(false); }
