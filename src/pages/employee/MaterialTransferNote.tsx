@@ -35,6 +35,7 @@ export const MaterialTransferNote: React.FC = () => {
   const [user] = useState<UserSession | null>(() => getSessionUser());
 
   const [pendingMtns, setPendingMtns] = useState<AdminMtn[]>([]);
+  const [receivedMtns, setReceivedMtns] = useState<Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: ReceiptItem[]; receivedAt: string }>>([]);
   const [selectedMtn, setSelectedMtn] = useState<AdminMtn | null>(null);
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [complaintNote, setComplaintNote] = useState("");
@@ -59,6 +60,11 @@ export const MaterialTransferNote: React.FC = () => {
         const all = JSON.parse(raw) as AdminMtn[];
         const forMyShop = all.filter((m) => m.toShopId === user?.shopId);
         setPendingMtns(forMyShop);
+      }
+      // Load received history
+      const receivedRaw = localStorage.getItem("opti_mtn_received");
+      if (receivedRaw) {
+        setReceivedMtns(JSON.parse(receivedRaw));
       }
     } catch { /* */ }
     finally { setLoading(false); }
@@ -123,6 +129,19 @@ export const MaterialTransferNote: React.FC = () => {
             localStorage.setItem("opti_mtn_source", JSON.stringify(updated));
           }
         } catch { /* */ }
+        // Save to received history
+        try {
+          const history = JSON.parse(localStorage.getItem("opti_mtn_received") || "[]");
+          history.push({
+            mtnNo: selectedMtn.mtnNo,
+            mtnDate: selectedMtn.mtnDate,
+            from: selectedMtn.from,
+            to: selectedMtn.toShopName,
+            items: receiptItems.filter((item) => item.receivedQty > 0),
+            receivedAt: new Date().toISOString()
+          });
+          localStorage.setItem("opti_mtn_received", JSON.stringify(history));
+        } catch { /* */ }
         setSuccess(true);
       }
       else { setError(res.error || "Submission failed."); }
@@ -158,23 +177,49 @@ export const MaterialTransferNote: React.FC = () => {
       ) : !selectedMtn ? (
         /* List of pending MTNs from admin */
         <div className="space-y-3">
-          {pendingMtns.length === 0 ? (
+          {pendingMtns.length === 0 && receivedMtns.length === 0 ? (
             <div className="rounded-lg border border-border bg-card p-12 text-center space-y-2">
-              <p className="text-sm font-bold text-muted-foreground">No stock transfers pending</p>
+              <p className="text-sm font-bold text-muted-foreground">No stock transfers</p>
               <p className="text-xs text-muted-foreground">Admin has not sent any stock to your shop yet.</p>
             </div>
           ) : (
             <>
-              <p className="text-xs text-muted-foreground">Tap a voucher to confirm received quantities.</p>
-              {pendingMtns.map((mtn, i) => (
-                <button key={i} type="button" onClick={() => selectMtn(mtn)} className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-sm active:bg-secondary space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-black">{mtn.mtnNo}</p>
-                    <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.filter((item) => item.quantity > 0).length} items</p>
-                </button>
-              ))}
+              {pendingMtns.length > 0 && (
+                <>
+                  <p className="text-xs font-black text-amber-700 uppercase">Pending Receipt ({pendingMtns.length})</p>
+                  {pendingMtns.map((mtn, i) => (
+                    <button key={i} type="button" onClick={() => selectMtn(mtn)} className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left shadow-sm active:bg-amber-100 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-black">{mtn.mtnNo}</p>
+                        <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.filter((item) => item.quantity > 0).length} items</p>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {receivedMtns.length > 0 && (
+                <>
+                  <p className="text-xs font-black text-green-700 uppercase mt-4">Received ({receivedMtns.length})</p>
+                  {receivedMtns.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).map((mtn, i) => (
+                    <div key={i} className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-bold">{mtn.mtnNo}</p>
+                        <span className="rounded-full bg-green-100 border border-green-200 px-2 py-0.5 text-[10px] font-black text-green-700">Received</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.to} · {formatDateForDisplay(mtn.mtnDate)}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {mtn.items.map((item, j) => (
+                          <span key={j} className="rounded bg-white border border-green-200 px-2 py-0.5 text-[10px] font-bold">
+                            {item.itemName}: {item.receivedQty}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </>
           )}
         </div>

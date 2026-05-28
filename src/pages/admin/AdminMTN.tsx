@@ -239,15 +239,29 @@ export const AdminMTN: React.FC = () => {
             <section className="rounded-lg border border-border bg-card shadow-sm">
               <div className="border-b border-border p-4"><h2 className="text-sm font-black">Sent Vouchers ({savedMtns.length})</h2></div>
               <div className="divide-y divide-border/60">
-                {savedMtns.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((mtn) => (
-                  <div key={mtn.id} className="p-4 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">{mtn.mtnNo}</p>
-                      <p className="text-xs text-muted-foreground">{mtn.mtnDate}</p>
+                {savedMtns.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((mtn) => {
+                  // Check if employee received this
+                  let receivedStatus = "Pending";
+                  try {
+                    const receivedRaw = localStorage.getItem("opti_mtn_received");
+                    if (receivedRaw) {
+                      const received = JSON.parse(receivedRaw) as Array<{ mtnNo: string }>;
+                      if (received.some((r) => r.mtnNo === mtn.mtnNo)) receivedStatus = "Received";
+                    }
+                  } catch { /* */ }
+                  return (
+                    <div key={mtn.id} className="p-4 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-bold">{mtn.mtnNo}</p>
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${receivedStatus === "Received" ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{receivedStatus}</span>
+                          <p className="text-xs text-muted-foreground">{mtn.mtnDate}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.length} items · {formatCurrency(mtn.items.reduce((s, i) => s + i.amount, 0))}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.length} items · {formatCurrency(mtn.items.reduce((s, i) => s + i.amount, 0))}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}
