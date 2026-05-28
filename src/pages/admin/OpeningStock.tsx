@@ -3,8 +3,16 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Package, RefreshCw, Save } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { OpeningStockEntry, Shop, UserSession } from "../../types";
-import { getLocalDateInputValue } from "../../utils/date";
+import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
+
+interface StockTransferLog {
+  mtnNo: string;
+  mtnDate: string;
+  from: string;
+  toShopName: string;
+  items: Array<{ productName: string; quantity: number }>;
+}
 
 export const OpeningStock: React.FC = () => {
   const navigate = useNavigate();
@@ -16,19 +24,19 @@ export const OpeningStock: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [transferLogs, setTransferLogs] = useState<StockTransferLog[]>([]);
 
   useEffect(() => {
     if (!user || user.role !== "Admin") { navigate("/login"); return; }
     const load = async () => {
       setLoading(true);
       try {
-        const [shopRes, prodRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getProducts()]);
+        const shopRes = await appsScriptClient.getShops();
         if (shopRes.success && shopRes.shops) {
           const active = shopRes.shops.filter((s) => s.Status === "Active");
           setShops(active);
           if (active[0]) setSelectedShopId(active[0].ShopID);
         }
-        if (prodRes.success) { /* products loaded */ }
       } catch { setError("Failed to load data."); }
       finally { setLoading(false); }
     };
@@ -44,7 +52,20 @@ export const OpeningStock: React.FC = () => {
       } catch { /* */ }
     };
     loadStock();
+    loadTransferLogs();
   }, [selectedShopId]);
+
+  const loadTransferLogs = () => {
+    try {
+      const raw = localStorage.getItem("opti_admin_mtns");
+      if (raw) {
+        const all = JSON.parse(raw) as Array<{ mtnNo: string; mtnDate: string; from: string; toShopId: string; toShopName: string; items: Array<{ productName: string; quantity: number }> }>;
+        setTransferLogs(all.filter((m) => m.toShopId === selectedShopId).sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)));
+      } else {
+        setTransferLogs([]);
+      }
+    } catch { setTransferLogs([]); }
+  };
 
   const updateStock = (productId: string, value: number) => {
     setStockEntries((current) => current.map((entry) =>
@@ -55,7 +76,6 @@ export const OpeningStock: React.FC = () => {
   const handleSave = async () => {
     setSaving(true); setError(""); setSuccess("");
     try {
-      // Save each stock entry via API (mock will update localStorage)
       for (const entry of stockEntries) {
         await appsScriptClient.updateOpeningStock({
           shopId: selectedShopId,
@@ -63,7 +83,7 @@ export const OpeningStock: React.FC = () => {
           openingStock: entry.CurrentOpeningStock
         });
       }
-      setSuccess("Opening stock saved successfully.");
+      setSuccess("Opening stock saved to Google Sheet.");
     } catch { setError("Failed to save opening stock."); }
     finally { setSaving(false); }
   };
@@ -81,7 +101,7 @@ export const OpeningStock: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-black flex items-center gap-2"><Package className="h-5 w-5 text-primary" />Opening Stock</h1>
-          <p className="text-xs text-muted-foreground">Admin only. Set or edit opening stock for each shop.</p>
+          <p className="text-xs text-muted-foreground">Admin only. View and update opening stock per shop. Auto-updates when stock is transferred.</p>
         </div>
         <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-primary-foreground disabled:opacity-50">
           <Save className="h-4 w-4" /> {saving ? "Saving..." : "Save"}
@@ -103,9 +123,14 @@ export const OpeningStock: React.FC = () => {
             </select>
           </div>
 
-          {/* Stock table */}
+          {/* Current Opening Stock */}
           {selectedShop && (
             <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <h2 className="text-sm font-black">Current Opening Stock — {selectedShop.ShopName}</h2>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Date: {formatDateForDisplay(getLocalDateInputValue())}</p>
+              </div>
+
               {Object.entries(groupedByCategory).map(([category, entries]) => (
                 <section key={category} className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
                   <div className="border-b border-border bg-secondary/50 px-4 py-3">
@@ -137,7 +162,7 @@ export const OpeningStock: React.FC = () => {
                                 placeholder="0"
                               />
                             </td>
-                            <td className="p-3 text-right text-muted-foreground text-[10px]">{entry.LastUpdatedDate ? new Date(entry.LastUpdatedDate).toLocaleDateString() : "-"}</td>
+                            <td className="p-3 text-right text-muted-foreground text-[10px]">{entry.LastUpdatedDate ? formatDateForDisplay(entry.LastUpdatedDate) : "-"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -146,6 +171,34 @@ export const OpeningStock: React.FC = () => {
                 </section>
               ))}
             </div>
+          )}
+
+          {/* Stock Transfer History for this shop */}
+          {transferLogs.length > 0 && (
+            <section className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+              <div className="border-b border-border bg-secondary/50 px-4 py-3">
+                <h2 className="text-sm font-black">Stock Transfers to {selectedShop?.ShopName}</h2>
+                <p className="text-[10px] text-muted-foreground">These transfers update opening stock when received by employee.</p>
+              </div>
+              <div className="divide-y divide-border/60">
+                {transferLogs.map((log, i) => (
+                  <div key={i} className="p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold">{log.mtnNo}</p>
+                      <p className="text-xs text-muted-foreground">{formatDateForDisplay(log.mtnDate)}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{log.from} → {log.toShopName}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {log.items.filter((item) => item.quantity > 0).map((item, j) => (
+                        <span key={j} className="rounded-full border border-border bg-secondary/30 px-2 py-0.5 text-[10px] font-bold">
+                          {item.productName}: {item.quantity}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
         </>
       )}

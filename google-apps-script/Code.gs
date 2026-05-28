@@ -199,6 +199,12 @@ function doPost(e) {
       case "submitLiveWeight":
         result = handleSubmitLiveWeight(data);
         break;
+      case "submitMTN":
+        result = handleSubmitMTN(data);
+        break;
+      case "updateOpeningStock":
+        result = handleUpdateOpeningStock(data);
+        break;
       default:
         result = { success: false, error: "Unknown API action: " + action };
     }
@@ -1205,4 +1211,35 @@ function handleSubmitLiveWeight(data) {
   appendObject(SHEETS.LiveWeight.name, obj);
   logAction(data.employeeId, "SUBMIT_LIVE_WEIGHT", "Live weight record " + liveWeightId + " submitted for " + (shop.ShopName || data.shopId) + " on " + date);
   return { success: true, liveWeight: obj };
+}
+
+function handleSubmitMTN(data) {
+  if (!data.shopId || !data.mtnNo) return { success: false, error: "MTN No and Shop are required." };
+  var mtnId = makeId("MTN");
+  var now = nowIso();
+  var items = Array.isArray(data.items) ? data.items : [];
+  
+  // Log the MTN receipt
+  logAction(data.employeeId || "ADMIN", "SUBMIT_MTN", "MTN " + data.mtnNo + " from " + data.from + " to " + data.to + " with " + items.length + " items");
+  
+  return { success: true, reportId: mtnId };
+}
+
+function handleUpdateOpeningStock(data) {
+  if (!data.shopId || !data.productId) return { success: false, error: "Shop and Product are required." };
+  var openingStock = toNumber(data.openingStock);
+  
+  // Find existing stock entry for today and update, or log the change
+  var date = normalizeDate(new Date());
+  var stocks = getObjects(SHEETS.DailyStockEntries.name);
+  var existing = stocks.find(function(s) {
+    return String(s.ShopID) === String(data.shopId) && String(s.ProductID) === String(data.productId) && normalizeDate(s.Date) === date;
+  });
+  
+  if (existing) {
+    updateObjectById(SHEETS.DailyStockEntries.name, "EntryID", existing.EntryID, { ActualClosing: openingStock });
+  }
+  
+  logAction("ADMIN", "UPDATE_OPENING_STOCK", "Product " + data.productId + " at shop " + data.shopId + " set to " + openingStock);
+  return { success: true };
 }

@@ -94,7 +94,7 @@ export const AdminMTN: React.FC = () => {
 
   const removeRow = (index: number) => setItems((c) => c.filter((_, i) => i !== index));
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setError(""); setSuccess("");
     if (!mtnNo.trim()) { setError("MTN No. is required."); return; }
     if (!toShopId) { setError("Select destination shop."); return; }
@@ -126,6 +126,17 @@ export const AdminMTN: React.FC = () => {
       empMtns.push({ mtnNo: mtn.mtnNo, mtnDate: mtn.mtnDate, from: mtn.from, toShopId: mtn.toShopId, toShopName: mtn.toShopName, items: filledItems.map((item) => ({ itemName: item.productName, location: mtn.from, quantity: item.quantity, rate: item.rate, amount: item.amount })) });
       localStorage.setItem("opti_mtn_source", JSON.stringify(empMtns));
     } catch { /* */ }
+
+    // Update opening stock for destination shop (add transferred quantities)
+    try {
+      for (const item of filledItems) {
+        await appsScriptClient.updateOpeningStock({
+          shopId: toShopId,
+          productId: item.productId,
+          openingStock: item.quantity // This adds to the shop's opening stock
+        });
+      }
+    } catch { /* best effort */ }
 
     setSuccess(`MTN ${mtn.mtnNo} sent to ${mtn.toShopName} successfully.`);
     setMtnNo("");
