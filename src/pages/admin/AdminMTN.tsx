@@ -16,6 +16,18 @@ interface MtnItem {
   amount: number;
 }
 
+interface SentMtnRow {
+  MTNNo: string;
+  MTNDate: string;
+  From: string;
+  ToShopName: string;
+  ProductName: string;
+  QtyAsPerMTN: number;
+  QtyReceived: number;
+  Status: string;
+  ProductID?: string;
+}
+
 export const AdminMTN: React.FC = () => {
   const navigate = useNavigate();
   const [user] = useState<UserSession | null>(() => getSessionUser());
@@ -26,7 +38,7 @@ export const AdminMTN: React.FC = () => {
   const [fromLocation, setFromLocation] = useState("Cold Room");
   const [toShopId, setToShopId] = useState("");
   const [items, setItems] = useState<MtnItem[]>([]);
-  const [sentMtns, setSentMtns] = useState<Array<{ MTNNo: string; MTNDate: string; From: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Status: string }>>([]);
+  const [sentMtns, setSentMtns] = useState<SentMtnRow[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -40,7 +52,11 @@ export const AdminMTN: React.FC = () => {
       try {
         await appsScriptClient.setupSheets();
         const [shopRes, prodRes] = await Promise.all([appsScriptClient.getShops(), appsScriptClient.getProducts()]);
-        if (shopRes.success && shopRes.shops) { setShops(shopRes.shops.filter((s) => s.Status === "Active")); setToShopId(shopRes.shops[0]?.ShopID || ""); }
+        if (shopRes.success && shopRes.shops) {
+          const active = shopRes.shops.filter((s) => s.Status === "Active");
+          setShops(active);
+          setToShopId(active[0]?.ShopID || "");
+        }
         if (prodRes.success && prodRes.products) {
           const active = prodRes.products.filter((p) => p.Active === "Yes");
           setProducts(active);
@@ -57,8 +73,8 @@ export const AdminMTN: React.FC = () => {
     // Load all MTNs from all shops to show admin what was sent
     try {
       const res = await appsScriptClient.getMTNsForShop("");
-      if (res.success && (res as any).mtns) {
-        setSentMtns((res as any).mtns);
+      if (res.success && res.mtns) {
+        setSentMtns(res.mtns);
       }
     } catch { /* */ }
   };
@@ -131,7 +147,8 @@ export const AdminMTN: React.FC = () => {
   const groupedSent = Array.from(new Set(sentMtns.map((m) => m.MTNNo))).map((mtnNo) => {
     const rows = sentMtns.filter((m) => m.MTNNo === mtnNo);
     const first = rows[0];
-    return { mtnNo, mtnDate: first?.MTNDate || "", from: first?.From || "", toShopName: first?.ToShopName || "", items: rows, hasReceived: rows.some((r) => r.Status === "Received") };
+    const allReceived = rows.length > 0 && rows.every((r) => String(r.Status || "").toLowerCase() === "received");
+    return { mtnNo, mtnDate: first?.MTNDate || "", from: first?.From || "", toShopName: first?.ToShopName || "", items: rows, allReceived };
   });
 
   return (
@@ -198,7 +215,7 @@ export const AdminMTN: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-bold">{mtn.mtnNo}</p>
                       <div className="flex items-center gap-2">
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${mtn.hasReceived ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{mtn.hasReceived ? "Received" : "Pending"}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${mtn.allReceived ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{mtn.allReceived ? "Received" : "Pending"}</span>
                         <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
                       </div>
                     </div>

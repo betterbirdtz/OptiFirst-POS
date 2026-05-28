@@ -82,6 +82,7 @@ type MTNRow = {
   Status: string;
   Complaint: string;
   CreatedAt: string;
+  ProductID?: string;
 };
 
 const MOCK_SCHEMA_VERSION = "2026-05-v2-shops-mtn-pricing";
@@ -1041,6 +1042,22 @@ function saveShopPrices(shopId: string, prices: Array<{ productId?: string; Prod
   return { success: true };
 }
 
+function adjustMockOpeningStock(shopId: string, productId: string, deltaQty: number) {
+  if (!shopId || !productId || deltaQty === 0) return;
+  const rows = parseStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, []);
+  const index = rows.findIndex((row) => row.ShopID === shopId && row.ProductID === productId);
+  if (index >= 0) {
+    rows[index] = {
+      ...rows[index],
+      OpeningStock: toNumber(rows[index].OpeningStock) + deltaQty,
+      UpdatedAt: nowIso()
+    };
+  } else {
+    rows.push({ ShopID: shopId, ProductID: productId, OpeningStock: deltaQty, UpdatedAt: nowIso() });
+  }
+  setStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, rows);
+}
+
 function submitMockMTN(data: ApiData): ApiResponse {
   const shopId = String(data.shopId || "");
   const mtnNo = String(data.mtnNo || "").trim();
@@ -1054,19 +1071,24 @@ function submitMockMTN(data: ApiData): ApiResponse {
   if (receiptMode) {
     items.forEach((item) => {
       const productName = String(item.productName || "");
-      const index = mtns.findIndex((row) => row.MTNNo === mtnNo && row.ToShopID === shopId && row.ProductName === productName);
+      const productId = String(item.productId || "");
+      const index = mtns.findIndex((row) => row.MTNNo === mtnNo && row.ToShopID === shopId && (productId ? row.ProductID === productId : row.ProductName === productName));
       const qtyReceived = toNumber(item.qtyReceived);
       const variance = toNumber(item.variance);
       if (index >= 0) {
+        const previousReceived = toNumber(mtns[index].QtyReceived);
+        const resolvedProductId = productId || mtns[index].ProductID || "";
         mtns[index] = {
           ...mtns[index],
           EmployeeID: String(data.employeeId || ""),
           EmployeeName: String(data.employeeName || ""),
+          ProductID: resolvedProductId,
           QtyReceived: qtyReceived,
           Variance: variance,
           Status: "Received",
           Complaint: String(data.complaint || mtns[index].Complaint || "")
         };
+        adjustMockOpeningStock(shopId, resolvedProductId, qtyReceived - previousReceived);
       } else {
         mtns.push({
           MTNID: generateId("MTN"),
@@ -1078,6 +1100,7 @@ function submitMockMTN(data: ApiData): ApiResponse {
           EmployeeID: String(data.employeeId || ""),
           EmployeeName: String(data.employeeName || ""),
           ProductName: productName,
+          ProductID: productId,
           QtyAsPerMTN: toNumber(item.qtyAsPerMTN),
           QtyReceived: qtyReceived,
           Variance: variance,
@@ -1085,6 +1108,7 @@ function submitMockMTN(data: ApiData): ApiResponse {
           Complaint: String(data.complaint || ""),
           CreatedAt: now
         });
+        adjustMockOpeningStock(shopId, productId, qtyReceived);
       }
     });
     setStored<MTNRow>(STORAGE_KEYS.mtn, mtns);
@@ -1101,6 +1125,7 @@ function submitMockMTN(data: ApiData): ApiResponse {
     EmployeeID: String(data.employeeId || ""),
     EmployeeName: String(data.employeeName || ""),
     ProductName: String(item.productName || ""),
+    ProductID: String(item.productId || ""),
     QtyAsPerMTN: toNumber(item.qtyAsPerMTN),
     QtyReceived: 0,
     Variance: 0,
@@ -1473,7 +1498,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   // Cacheable reads - static data (5 min cache)
   const staticReads = ["getShops", "getProducts", "getUsers", "getEmployees"];
   // Cacheable reads - dynamic data (1 min cache)
-  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getMTNsForShop", "getShopPrices"];
+  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getShopPrices"];
   const cacheKey = `${action}_${JSON.stringify(data)}`;
 
   if (staticReads.includes(action)) {

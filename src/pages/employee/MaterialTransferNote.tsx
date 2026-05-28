@@ -7,10 +7,12 @@ import { formatDateForDisplay } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
 
 interface AdminMtnItem {
+  productId: string;
   itemName: string;
   quantity: number;
   rate: number;
   amount: number;
+  status: string;
 }
 
 interface AdminMtn {
@@ -23,6 +25,7 @@ interface AdminMtn {
 }
 
 interface ReceiptItem {
+  productId: string;
   itemName: string;
   sentQty: number;
   receivedQty: number;
@@ -30,12 +33,40 @@ interface ReceiptItem {
   variance: number;
 }
 
+interface ReceivedMtn {
+  mtnNo: string;
+  mtnDate: string;
+  from: string;
+  to: string;
+  items: ReceiptItem[];
+  receivedAt: string;
+}
+
+interface MtnSheetRow {
+  MTNID: string;
+  MTNNo: string;
+  MTNDate: string;
+  From: string;
+  ToShopID: string;
+  ToShopName: string;
+  ProductID?: string;
+  ProductName: string;
+  QtyAsPerMTN: number;
+  QtyReceived: number;
+  Variance: number;
+  Status: string;
+  Complaint: string;
+  CreatedAt?: string;
+}
+
+const isReceivedStatus = (status?: string) => String(status || "").toLowerCase() === "received";
+
 export const MaterialTransferNote: React.FC = () => {
   const navigate = useNavigate();
   const [user] = useState<UserSession | null>(() => getSessionUser());
 
   const [pendingMtns, setPendingMtns] = useState<AdminMtn[]>([]);
-  const [receivedMtns, setReceivedMtns] = useState<Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: ReceiptItem[]; receivedAt: string }>>([]);
+  const [receivedMtns, setReceivedMtns] = useState<ReceivedMtn[]>([]);
   const [selectedMtn, setSelectedMtn] = useState<AdminMtn | null>(null);
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [complaintNote, setComplaintNote] = useState("");
@@ -56,30 +87,37 @@ export const MaterialTransferNote: React.FC = () => {
     try {
       if (!user?.shopId) { setLoading(false); return; }
       const res = await appsScriptClient.getMTNsForShop(user.shopId);
-      if (res.success && (res as any).mtns) {
-        const allMtns = (res as any).mtns as Array<{ MTNID: string; MTNNo: string; MTNDate: string; From: string; ToShopID: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Variance: number; Status: string; Complaint: string }>;
+      if (res.success && res.mtns) {
+        const allMtns = res.mtns as MtnSheetRow[];
         // Group by MTNNo
         const grouped = new Map<string, AdminMtn>();
         allMtns.forEach((row) => {
           if (!grouped.has(row.MTNNo)) {
             grouped.set(row.MTNNo, { mtnNo: row.MTNNo, mtnDate: String(row.MTNDate).split("T")[0], from: row.From, toShopId: row.ToShopID, toShopName: row.ToShopName, items: [] });
           }
-          grouped.get(row.MTNNo)!.items.push({ itemName: row.ProductName, quantity: Number(row.QtyAsPerMTN), rate: 0, amount: 0 });
+          grouped.get(row.MTNNo)!.items.push({
+            productId: row.ProductID || "",
+            itemName: row.ProductName,
+            quantity: Number(row.QtyAsPerMTN),
+            rate: 0,
+            amount: 0,
+            status: String(row.Status || "Sent")
+          });
         });
         // Separate pending (Sent) and received
         const pending: AdminMtn[] = [];
-        const received: Array<{ mtnNo: string; mtnDate: string; from: string; to: string; items: ReceiptItem[]; receivedAt: string }> = [];
+        const received: ReceivedMtn[] = [];
         grouped.forEach((mtn) => {
           const mtnRows = allMtns.filter((r) => r.MTNNo === mtn.mtnNo);
-          const hasReceived = mtnRows.some((r) => r.Status === "Received");
-          if (hasReceived) {
+          const allReceived = mtnRows.length > 0 && mtnRows.every((r) => isReceivedStatus(r.Status));
+          if (allReceived) {
             received.push({
               mtnNo: mtn.mtnNo, mtnDate: mtn.mtnDate, from: mtn.from, to: mtn.toShopName,
-              items: mtnRows.map((r) => ({ itemName: r.ProductName, sentQty: Number(r.QtyAsPerMTN), receivedQty: Number(r.QtyReceived), rate: 0, variance: Number(r.Variance) })),
-              receivedAt: ""
+              items: mtnRows.map((r) => ({ productId: r.ProductID || "", itemName: r.ProductName, sentQty: Number(r.QtyAsPerMTN), receivedQty: Number(r.QtyReceived), rate: 0, variance: Number(r.Variance) })),
+              receivedAt: String(mtnRows[0]?.CreatedAt || "")
             });
           } else {
-            pending.push(mtn);
+            pending.push({ ...mtn, items: mtn.items.filter((item) => !isReceivedStatus(item.status)) });
           }
         });
         setPendingMtns(pending);
@@ -92,6 +130,7 @@ export const MaterialTransferNote: React.FC = () => {
   const selectMtn = (mtn: AdminMtn) => {
     setSelectedMtn(mtn);
     setReceiptItems(mtn.items.filter((item) => item.quantity > 0).map((item) => ({
+      productId: item.productId,
       itemName: item.itemName,
       sentQty: item.quantity,
       receivedQty: 0,
@@ -130,7 +169,7 @@ export const MaterialTransferNote: React.FC = () => {
         employeeName: user.name,
         complaint: complaintNote || undefined,
         items: filled.map((item) => ({
-          productId: "",
+          productId: item.productId,
           productName: item.itemName,
           category: "",
           uom: "",
@@ -185,8 +224,8 @@ export const MaterialTransferNote: React.FC = () => {
               {pendingMtns.length > 0 && (
                 <>
                   <p className="text-xs font-black text-amber-700 uppercase">Pending Receipt ({pendingMtns.length})</p>
-                  {pendingMtns.map((mtn, i) => (
-                    <button key={i} type="button" onClick={() => selectMtn(mtn)} className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left shadow-sm active:bg-amber-100 space-y-2">
+                  {pendingMtns.map((mtn) => (
+                    <button key={mtn.mtnNo} type="button" onClick={() => selectMtn(mtn)} className="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-left shadow-sm active:bg-amber-100 space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-black">{mtn.mtnNo}</p>
                         <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
@@ -200,16 +239,16 @@ export const MaterialTransferNote: React.FC = () => {
               {receivedMtns.length > 0 && (
                 <>
                   <p className="text-xs font-black text-green-700 uppercase mt-4">Received ({receivedMtns.length})</p>
-                  {receivedMtns.sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).map((mtn, i) => (
-                    <div key={i} className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-2">
+                  {[...receivedMtns].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).map((mtn) => (
+                    <div key={mtn.mtnNo} className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-bold">{mtn.mtnNo}</p>
                         <span className="rounded-full bg-green-100 border border-green-200 px-2 py-0.5 text-[10px] font-black text-green-700">Received</span>
                       </div>
                       <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.to} · {formatDateForDisplay(mtn.mtnDate)}</p>
                       <div className="flex flex-wrap gap-1">
-                        {mtn.items.map((item, j) => (
-                          <span key={j} className="rounded bg-white border border-green-200 px-2 py-0.5 text-[10px] font-bold">
+                        {mtn.items.map((item) => (
+                          <span key={item.productId || item.itemName} className="rounded bg-white border border-green-200 px-2 py-0.5 text-[10px] font-bold">
                             {item.itemName}: {item.receivedQty}
                           </span>
                         ))}
@@ -238,7 +277,7 @@ export const MaterialTransferNote: React.FC = () => {
             <h2 className="text-sm font-black">Confirm Received Quantities</h2>
             <div className="space-y-3">
               {receiptItems.map((item, i) => (
-                <div key={i} className="rounded-lg border border-border p-3 space-y-2">
+                <div key={item.productId || item.itemName} className="rounded-lg border border-border p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-bold">{item.itemName}</p>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${item.receivedQty === 0 ? "bg-secondary text-muted-foreground" : item.variance === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
@@ -274,8 +313,8 @@ export const MaterialTransferNote: React.FC = () => {
             <section className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
               <h2 className="text-sm font-black text-red-800">⚠ Shortage Detected ({mismatchItems.length} items)</h2>
               <div className="space-y-1">
-                {mismatchItems.map((m, i) => (
-                  <p key={i} className="text-xs font-semibold text-red-700">{m.itemName}: sent {m.sentQty}, received {m.receivedQty} ({m.variance > 0 ? "+" : ""}{m.variance})</p>
+                {mismatchItems.map((m) => (
+                  <p key={m.productId || m.itemName} className="text-xs font-semibold text-red-700">{m.itemName}: sent {m.sentQty}, received {m.receivedQty} ({m.variance > 0 ? "+" : ""}{m.variance})</p>
                 ))}
               </div>
               <div>

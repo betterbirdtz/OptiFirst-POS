@@ -1340,11 +1340,17 @@ function handleSubmitMTN(data) {
     var updated = 0;
 
     items.forEach(function(item) {
+      var itemProductId = String(item.productId || "");
+      var itemProductName = String(item.productName || "");
       for (var i = 1; i < values.length; i++) {
+        var rowProductId = productIdIdx >= 0 ? String(values[i][productIdIdx] || "") : "";
+        var productMatches = itemProductId && rowProductId
+          ? rowProductId === itemProductId
+          : String(values[i][productIdx]) === itemProductName;
         if (
           String(values[i][mtnNoIdx]) === String(data.mtnNo) &&
           String(values[i][shopIdx]) === String(data.shopId) &&
-          String(values[i][productIdx]) === String(item.productName || "")
+          productMatches
         ) {
           var previousReceived = toNumber(values[i][qtyReceivedIdx]);
           var nextReceived = toNumber(item.qtyReceived);
@@ -1354,8 +1360,8 @@ function handleSubmitMTN(data) {
           sheet.getRange(i + 1, varianceIdx + 1).setValue(toNumber(item.variance));
           sheet.getRange(i + 1, statusIdx + 1).setValue("Received");
           sheet.getRange(i + 1, complaintIdx + 1).setValue(data.complaint || "");
-          if (productIdIdx >= 0 && item.productId) sheet.getRange(i + 1, productIdIdx + 1).setValue(item.productId);
-          adjustOpeningStockForTransfer(data.shopId, item.productId || (productIdIdx >= 0 ? values[i][productIdIdx] : ""), item.productName, nextReceived - previousReceived);
+          if (productIdIdx >= 0 && itemProductId) sheet.getRange(i + 1, productIdIdx + 1).setValue(itemProductId);
+          adjustOpeningStockForTransfer(data.shopId, itemProductId || rowProductId, itemProductName, nextReceived - previousReceived);
           updated++;
           break;
         }

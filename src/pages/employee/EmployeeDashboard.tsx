@@ -36,13 +36,12 @@ export const EmployeeDashboard: React.FC = () => {
           if (collRes.success && collRes.collection) setTodayCollection(collRes.collection);
           const mtnRes = await appsScriptClient.getMTNsForShop(user.shopId);
           if (mtnRes.success && mtnRes.mtns) {
-            const today = getLocalDateInputValue();
-            const todayMtnNos = new Set(
+            const pendingMtnNos = new Set(
               mtnRes.mtns
-                .filter((mtn) => String(mtn.MTNDate).split("T")[0] === today)
+                .filter((mtn) => String(mtn.Status || "Sent").toLowerCase() !== "received")
                 .map((mtn) => mtn.MTNNo)
             );
-            setTodayMtnCount(todayMtnNos.size);
+            setTodayMtnCount(pendingMtnNos.size);
           }
         }
       } catch { /* */ }
@@ -109,7 +108,7 @@ export const EmployeeDashboard: React.FC = () => {
           <StatusItem label="Sales" value={todayReport ? formatCurrency(todayReport.TotalSales) : "-"} done={!!todayReport} editTo="/employee/daily-sales" />
           <StatusItem label="Stock" value={todayReport?.StockSubmitted === "Yes" ? `${todayReport.StockMismatch} mismatch` : "-"} done={todayReport?.StockSubmitted === "Yes"} editTo="/employee/closing" />
           <StatusItem label="Collection" value={todayCollection && todayCollection.Status !== "Draft" ? formatCurrency(todayCollection.Variance) : "-"} done={todayCollection?.Status === "Submitted" || todayCollection?.Status === "Approved"} editTo="/employee/collection" danger={todayCollection ? todayCollection.Variance !== 0 : false} />
-          <StatusItem label="MTN" value={todayMtnCount > 0 ? `${todayMtnCount} voucher` : "-"} done={todayMtnCount > 0} editTo="/employee/mtn" />
+          <StatusItem label="MTN" value={todayMtnCount > 0 ? `${todayMtnCount} pending` : "-"} done={todayMtnCount > 0} editTo="/employee/mtn" />
         </div>
       </div>
 
