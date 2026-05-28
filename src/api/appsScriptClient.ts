@@ -1337,18 +1337,8 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   }
 
   // Employee write actions: save locally FIRST (instant), then queue for background sync
-  const localFirstActions = ["submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "submitMTN", "submitLiveWeight"];
-  if (localFirstActions.includes(action)) {
-    const localResult = await callMockApi(action, data);
-    if (localResult.success) {
-      addToSyncQueue(action, data);
-      triggerSync();
-      invalidateCache();
-    }    return localResult;
-  }
-
-  // All other write actions invalidate cache
-  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit"];
+  // ALL writes go directly to Google Sheets
+  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight"];
   if (writeActions.includes(action)) {
     invalidateCache();
   }
