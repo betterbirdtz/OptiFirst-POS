@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShoppingBag, Plus, Edit, Package, Layers, Tag, Percent, RefreshCw, AlertCircle, Store } from "lucide-react";
+import { ShoppingBag, Plus, Edit, Package, Layers, Tag, Percent, RefreshCw, AlertCircle, Store, Trash2 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { Product, Shop, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
@@ -118,6 +118,24 @@ export const ManageProducts: React.FC = () => {
     setDefaultRate("");
     setActive("Yes");
     setIsModalOpen(true);
+  };
+
+  const handleDelete = async (prod: Product) => {
+    if (!window.confirm(`Delete "${prod.ProductName}"? This will mark it as inactive.`)) return;
+    setError("");
+    try {
+      const response = await appsScriptClient.updateProduct({
+        productId: prod.ProductID,
+        active: "No"
+      });
+      if (response.success) {
+        loadProducts();
+      } else {
+        setError(response.error || "Failed to delete product.");
+      }
+    } catch {
+      setError("Network error.");
+    }
   };
 
   const openEditModal = (prod: Product) => {
@@ -247,6 +265,12 @@ export const ManageProducts: React.FC = () => {
                   className="p-1.5 border border-border rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
                 >
                   <Edit className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => handleDelete(prod)}
+                  className="p-1.5 border border-border rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
 
