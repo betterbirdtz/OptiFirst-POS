@@ -1277,6 +1277,17 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
       return { success: true, openingStock: getOpeningStock(shopId, date) };
     }
 
+    case "getInitialData": {
+      const shopId = String(data.shopId || getShops()[0]?.ShopID || "");
+      const date = String(data.date || getLocalDateInputValue());
+      return {
+        success: true,
+        shops: getShops(),
+        products: getProducts(),
+        openingStock: getOpeningStock(shopId, date)
+      };
+    }
+
     case "getTodayReport": {
       const shopId = String(data.shopId || "");
       const date = normalizeSheetDate(String(data.date || getLocalDateInputValue()));
@@ -1498,7 +1509,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   // Cacheable reads - static data (5 min cache)
   const staticReads = ["getShops", "getProducts", "getUsers", "getEmployees"];
   // Cacheable reads - dynamic data (1 min cache)
-  const dynamicReads = ["getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getShopPrices"];
+  const dynamicReads = ["getInitialData", "getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getShopPrices"];
   const cacheKey = `${action}_${JSON.stringify(data)}`;
 
   if (staticReads.includes(action)) {
@@ -1564,20 +1575,10 @@ export const appsScriptClient = {
     const url = (import.meta.env.VITE_APPS_SCRIPT_URL || "").trim();
     if (!url) return;
     try {
-      await Promise.all([
-        callApi("getShops"),
-        callApi("getProducts"),
-        callApi("getMyReports", { employeeId: userId }),
-        callApi("getOpeningStock", { shopId, employeeId: userId })
-      ]);
-      const today = getLocalDateInputValue();
-      await Promise.all([
-        callApi("getDailySalesReport", { shopId, startDate: today, endDate: today }),
-        callApi("getDailyStockReport", { shopId, startDate: today, endDate: today }),
-        callApi("getTodayCollection", { shopId, date: today })
-      ]);
+      await callApi("getInitialData", { shopId, employeeId: userId, date: getLocalDateInputValue() });
     } catch { /* silent */ }
   },
+  getInitialData: (shopId: string, employeeId: string, date: string) => callApi("getInitialData", { shopId, employeeId, date }),
   getShops: () => callApi("getShops"),
   createShop: (shopData: { shopName: string; location: string; inchargeName: string; inchargeContact: string; status: string }) =>
     callApi("createShop", shopData),

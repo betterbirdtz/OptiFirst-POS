@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, ArrowRight, Building2, Calendar, CheckCircle2, Plus, Save, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, Plus, Save, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import ConfirmSubmitModal from "../../components/employee/ConfirmSubmitModal";
 import ReviewWarnings from "../../components/employee/ReviewWarnings";
@@ -259,9 +259,8 @@ export const DailySalesEntry: React.FC = () => {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+                <div className="rounded-lg border border-input bg-secondary/50 px-3 py-3 text-base font-bold text-foreground">
+                  {date}
                 </div>
               </div>
               <button type="button" onClick={() => setStep(2)} disabled={!shopId || !date} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">

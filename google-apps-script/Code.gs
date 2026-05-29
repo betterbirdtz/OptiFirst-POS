@@ -54,11 +54,39 @@ const SHEETS = {
   }
 };
 
+const READ_ACTIONS = [
+  "login",
+  "getShops",
+  "getProducts",
+  "getUsers",
+  "getEmployees",
+  "getOpeningStock",
+  "getTodayOpeningStock",
+  "getTodayReport",
+  "getMyReports",
+  "getEmployeeReports",
+  "getDashboard",
+  "getAdminDashboard",
+  "getReportsByDate",
+  "getDailySalesReport",
+  "getDailyStockReport",
+  "getTodayCollection",
+  "getCollections",
+  "getMonthlyCollectionReport",
+  "getStockMismatchReport",
+  "getCreditSalesReport",
+  "getLiveWeight",
+  "getMTNsForShop",
+  "getShopPrices",
+  "getInitialData"
+];
+
 function setupSheets() {
   ensureConfiguredSheets();
   seedShops();
   seedUsers();
   seedProducts();
+  invalidateCachedSheets();
   logAction("SYSTEM", "SETUP", "Database initialized with normalized tabs.");
   return "Setup completed. Tabs, headers, shops, users, and products are ready.";
 }
@@ -75,167 +103,148 @@ function doGet(e) {
   return jsonResponse({ success: true, message: "OptiFirst POS API is running." });
 }
 
+function keepWarm() {
+  SpreadsheetApp.getActiveSpreadsheet().getName();
+}
+
 function doPost(e) {
-  const lock = LockService.getScriptLock();
+  let request;
+  let action;
+  let data;
   try {
-    lock.waitLock(30000);
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse({ success: false, error: "No JSON post data found." });
     }
 
-    const request = JSON.parse(e.postData.contents);
-    const action = request.action;
-    const data = request.data || {};
-    let result;
+    request = JSON.parse(e.postData.contents);
+    action = request.action;
+    data = request.data || {};
+  } catch (err) {
+    return jsonResponse({ success: false, error: "Invalid request: " + err });
+  }
 
-    switch (action) {
-      case "setupSheets":
-        result = { success: true, message: setupSheets() };
-        break;
-      case "login":
-        result = handleLogin(data);
-        break;
-      case "getShops":
-        result = { success: true, shops: getObjects(SHEETS.Shops.name) };
-        break;
-      case "createShop":
-        result = handleCreateShop(data);
-        break;
-      case "updateShop":
-        result = handleUpdateShop(data);
-        break;
-      case "getUsers":
-      case "getEmployees":
-        result = handleGetUsers();
-        break;
-      case "createUser":
-      case "createEmployee":
-        result = handleCreateUser(data);
-        break;
-      case "updateUser":
-      case "updateEmployee":
-        result = handleUpdateUser(data);
-        break;
-      case "getProducts":
-        result = { success: true, products: getObjects(SHEETS.Products.name) };
-        break;
-      case "getShopPrices":
-        result = handleGetShopPrices(data);
-        break;
-      case "saveShopPrices":
-        result = handleSaveShopPrices(data);
-        break;
-      case "createProduct":
-        result = handleCreateProduct(data);
-        break;
-      case "updateProduct":
-        result = handleUpdateProduct(data);
-        break;
-      case "getTodayReport":
-        result = handleGetTodayReport(data);
-        break;
-      case "getOpeningStock":
-      case "getTodayOpeningStock":
-        result = handleGetOpeningStock(data);
-        break;
-      case "submitDailySales":
-        result = handleSubmitReport(data, "sales");
-        break;
-      case "submitDailyStock":
-        result = handleSubmitReport(data, "stock");
-        break;
-      case "submitFullDailyReport":
-      case "submitDailyReport":
-        result = handleSubmitReport(data, "full");
-        break;
-      case "getMyReports":
-      case "getEmployeeReports":
-        result = handleGetMyReports(data);
-        break;
-      case "getDashboard":
-      case "getAdminDashboard":
-        result = handleGetDashboard(data);
-        break;
-      case "getReportsByDate":
-        result = Object.assign({ success: true }, getReportBundle(data));
-        break;
-      case "getDailySalesReport":
-        result = handleGetDailySalesReport(data);
-        break;
-      case "getDailyStockReport":
-        result = handleGetDailyStockReport(data);
-        break;
-      case "getTodayCollection":
-        result = handleGetTodayCollection(data);
-        break;
-      case "submitDailyCollection":
-        result = handleSubmitDailyCollection(data);
-        break;
-      case "getCollections":
-        result = handleGetCollections(data);
-        break;
-      case "getMonthlyCollectionReport":
-        result = handleGetMonthlyCollectionReport(data);
-        break;
-      case "updateCollectionByAdmin":
-        result = handleUpdateCollectionByAdmin(data);
-        break;
-      case "updateCollectionDeposit":
-        result = handleUpdateCollectionByAdmin(data);
-        break;
-      case "approveCollection":
-        result = handleUpdateCollectionStatus(data, "Approved");
-        break;
-      case "rejectCollection":
-        result = handleUpdateCollectionStatus(data, "Rejected");
-        break;
-      case "reopenCollection":
-        result = handleUpdateCollectionStatus(data, "Reopened");
-        break;
-      case "approveReport":
-        result = handleUpdateReportStatus(data.reportId, "Approved", data.adminId || data.userId || "");
-        break;
-      case "rejectReport":
-        result = handleUpdateReportStatus(data.reportId, "Rejected", data.adminId || data.userId || "");
-        break;
-      case "reopenReport":
-        result = handleUpdateReportStatus(data.reportId, "Reopened", data.adminId || data.userId || "");
-        break;
-      case "getStockMismatchReport":
-        result = handleGetStockMismatchReport(data);
-        break;
-      case "getCreditSalesReport":
-        result = handleGetCreditSalesReport(data);
-        break;
-      case "getLiveWeight":
-        result = { success: true, liveWeight: getObjects(SHEETS.LiveWeight.name) };
-        break;
-      case "submitLiveWeight":
-        result = handleSubmitLiveWeight(data);
-        break;
-      case "submitMTN":
-        result = handleSubmitMTN(data);
-        break;
-      case "getMTNsForShop":
-        result = handleGetMTNsForShop(data);
-        break;
-      case "updateOpeningStock":
-        result = handleUpdateOpeningStock(data);
-        break;
-      default:
-        result = { success: false, error: "Unknown API action: " + action };
+  if (READ_ACTIONS.indexOf(action) >= 0) {
+    try {
+      return jsonResponse(processAction(action, data));
+    } catch (err) {
+      return jsonResponse({ success: false, error: String(err) });
     }
+  }
 
-    return jsonResponse(result);
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (err) {
+    return jsonResponse({ success: false, error: "Server busy. Try again in a moment." });
+  }
+
+  try {
+    return jsonResponse(processAction(action, data));
   } catch (err) {
     logAction("SYSTEM", "ERROR", String(err));
     return jsonResponse({ success: false, error: String(err) });
   } finally {
-    try {
-      lock.releaseLock();
-    } catch (ignored) {
-      // Lock may not have been acquired if parsing failed very early.
-    }
+    lock.releaseLock();
+  }
+}
+
+function processAction(action, data) {
+  switch (action) {
+    case "setupSheets":
+      return { success: true, message: setupSheets() };
+    case "login":
+      return handleLogin(data);
+    case "getShops":
+      return { success: true, shops: getObjectsCached(SHEETS.Shops.name, 300) };
+    case "createShop":
+      return handleCreateShop(data);
+    case "updateShop":
+      return handleUpdateShop(data);
+    case "getUsers":
+    case "getEmployees":
+      return handleGetUsers();
+    case "createUser":
+    case "createEmployee":
+      return handleCreateUser(data);
+    case "updateUser":
+    case "updateEmployee":
+      return handleUpdateUser(data);
+    case "getProducts":
+      return { success: true, products: getObjectsCached(SHEETS.Products.name, 300) };
+    case "getShopPrices":
+      return handleGetShopPrices(data);
+    case "saveShopPrices":
+      return handleSaveShopPrices(data);
+    case "createProduct":
+      return handleCreateProduct(data);
+    case "updateProduct":
+      return handleUpdateProduct(data);
+    case "getTodayReport":
+      return handleGetTodayReport(data);
+    case "getOpeningStock":
+    case "getTodayOpeningStock":
+      return handleGetOpeningStock(data);
+    case "getInitialData":
+      return handleGetInitialData(data);
+    case "submitDailySales":
+      return handleSubmitReport(data, "sales");
+    case "submitDailyStock":
+      return handleSubmitReport(data, "stock");
+    case "submitFullDailyReport":
+    case "submitDailyReport":
+      return handleSubmitReport(data, "full");
+    case "getMyReports":
+    case "getEmployeeReports":
+      return handleGetMyReports(data);
+    case "getDashboard":
+    case "getAdminDashboard":
+      return handleGetDashboard(data);
+    case "getReportsByDate":
+      return Object.assign({ success: true }, getReportBundle(data));
+    case "getDailySalesReport":
+      return handleGetDailySalesReport(data);
+    case "getDailyStockReport":
+      return handleGetDailyStockReport(data);
+    case "getTodayCollection":
+      return handleGetTodayCollection(data);
+    case "submitDailyCollection":
+      return handleSubmitDailyCollection(data);
+    case "getCollections":
+      return handleGetCollections(data);
+    case "getMonthlyCollectionReport":
+      return handleGetMonthlyCollectionReport(data);
+    case "updateCollectionByAdmin":
+      return handleUpdateCollectionByAdmin(data);
+    case "updateCollectionDeposit":
+      return handleUpdateCollectionByAdmin(data);
+    case "approveCollection":
+      return handleUpdateCollectionStatus(data, "Approved");
+    case "rejectCollection":
+      return handleUpdateCollectionStatus(data, "Rejected");
+    case "reopenCollection":
+      return handleUpdateCollectionStatus(data, "Reopened");
+    case "approveReport":
+      return handleUpdateReportStatus(data.reportId, "Approved", data.adminId || data.userId || "");
+    case "rejectReport":
+      return handleUpdateReportStatus(data.reportId, "Rejected", data.adminId || data.userId || "");
+    case "reopenReport":
+      return handleUpdateReportStatus(data.reportId, "Reopened", data.adminId || data.userId || "");
+    case "getStockMismatchReport":
+      return handleGetStockMismatchReport(data);
+    case "getCreditSalesReport":
+      return handleGetCreditSalesReport(data);
+    case "getLiveWeight":
+      return { success: true, liveWeight: getObjects(SHEETS.LiveWeight.name) };
+    case "submitLiveWeight":
+      return handleSubmitLiveWeight(data);
+    case "submitMTN":
+      return handleSubmitMTN(data);
+    case "getMTNsForShop":
+      return handleGetMTNsForShop(data);
+    case "updateOpeningStock":
+      return handleUpdateOpeningStock(data);
+    default:
+      return { success: false, error: "Unknown API action: " + action };
   }
 }
 
@@ -295,9 +304,12 @@ function ensureConfiguredSheets() {
     const config = SHEETS[key];
     let sheet = ss.getSheetByName(config.name);
     if (!sheet) sheet = ss.insertSheet(config.name);
+    _sheetCache[config.name] = sheet;
     ensureHeaders(sheet, config.headers);
   });
 }
+
+var _sheetCache = {};
 
 function getSheetConfig(sheetName) {
   const keys = Object.keys(SHEETS);
@@ -309,15 +321,15 @@ function getSheetConfig(sheetName) {
 }
 
 function getSheet(sheetName) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(sheetName);
-  if (!sheet) {
-    const config = getSheetConfig(sheetName);
-    if (!config) throw new Error("Missing sheet: " + sheetName + ". Run setupSheets() first.");
-    sheet = ss.insertSheet(config.name);
-    ensureHeaders(sheet, config.headers);
+  if (!_sheetCache[sheetName]) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      throw new Error("Missing sheet: " + sheetName + ". Run setupSheets() first.");
+    }
+    _sheetCache[sheetName] = sheet;
   }
-  return sheet;
+  return _sheetCache[sheetName];
 }
 
 function getHeaders(sheetName) {
@@ -342,10 +354,50 @@ function getObjects(sheetName) {
   return rows;
 }
 
+function getObjectsCached(sheetName, ttlSeconds) {
+  const cache = CacheService.getScriptCache();
+  const key = "sheet_" + sheetName;
+  const cached = cache.get(key);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (err) {
+      // Fall through and refresh malformed cache values.
+    }
+  }
+
+  const data = getObjects(sheetName);
+  try {
+    cache.put(key, JSON.stringify(data), ttlSeconds || 300);
+  } catch (err) {
+    // CacheService values are capped at 100KB. Large sheets still work uncached.
+  }
+  return data;
+}
+
+function invalidateCache(sheetName) {
+  CacheService.getScriptCache().remove("sheet_" + sheetName);
+}
+
+function isCachedSheet(sheetName) {
+  return sheetName === SHEETS.Shops.name || sheetName === SHEETS.Products.name || sheetName === SHEETS.Users.name;
+}
+
+function invalidateCacheIfNeeded(sheetName) {
+  if (isCachedSheet(sheetName)) invalidateCache(sheetName);
+}
+
+function invalidateCachedSheets() {
+  invalidateCache(SHEETS.Shops.name);
+  invalidateCache(SHEETS.Products.name);
+  invalidateCache(SHEETS.Users.name);
+}
+
 function appendRows(sheetName, rows) {
   if (!rows.length) return;
   const sheet = getSheet(sheetName);
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  invalidateCacheIfNeeded(sheetName);
 }
 
 function appendObject(sheetName, obj) {
@@ -366,6 +418,7 @@ function updateObjectById(sheetName, idColumn, idValue, patch) {
           sheet.getRange(i + 1, index + 1).setValue(patch[header]);
         }
       });
+      invalidateCacheIfNeeded(sheetName);
       return true;
     }
   }
@@ -377,11 +430,16 @@ function deleteRowsWhere(sheetName, predicate) {
   if (sheet.getLastRow() <= 1) return;
   const values = sheet.getDataRange().getValues();
   const headers = values[0];
+  let changed = false;
   for (let i = values.length - 1; i >= 1; i--) {
     const obj = {};
     headers.forEach(function (header, index) { obj[header] = values[i][index]; });
-    if (predicate(obj)) sheet.deleteRow(i + 1);
+    if (predicate(obj)) {
+      sheet.deleteRow(i + 1);
+      changed = true;
+    }
   }
+  if (changed) invalidateCacheIfNeeded(sheetName);
 }
 
 function getSalesQuantityByProduct(shopId, date) {
@@ -423,11 +481,11 @@ function recalculateExistingStockSales(reportId, shopId, date) {
 }
 
 function findShop(shopId) {
-  return getObjects(SHEETS.Shops.name).find(function (shop) { return String(shop.ShopID) === String(shopId); });
+  return getObjectsCached(SHEETS.Shops.name, 300).find(function (shop) { return String(shop.ShopID) === String(shopId); });
 }
 
 function findUser(userId) {
-  return getObjects(SHEETS.Users.name).find(function (user) { return String(user.UserID) === String(userId); });
+  return getObjectsCached(SHEETS.Users.name, 300).find(function (user) { return String(user.UserID) === String(userId); });
 }
 
 function nowIso() {
@@ -478,6 +536,37 @@ function reportTotals(reportId) {
   };
 }
 
+function emptyReportTotals() {
+  return {
+    CashSales: 0,
+    CreditSales: 0,
+    TotalSales: 0,
+    StockMismatch: 0
+  };
+}
+
+function buildReportTotalsById(salesRows, stockRows) {
+  const totals = {};
+  salesRows.forEach(function (row) {
+    const reportId = String(row.ReportID);
+    if (!totals[reportId]) totals[reportId] = emptyReportTotals();
+    totals[reportId].CashSales += toNumber(row.CashSales);
+    totals[reportId].CreditSales += toNumber(row.CreditSales);
+    totals[reportId].TotalSales += toNumber(row.TotalAmount);
+  });
+  stockRows.forEach(function (row) {
+    const reportId = String(row.ReportID);
+    if (!totals[reportId]) totals[reportId] = emptyReportTotals();
+    if (toNumber(row.Mismatch) !== 0) totals[reportId].StockMismatch++;
+  });
+  return totals;
+}
+
+function reportTotalsFromMap(reportId, totalsById) {
+  const totals = totalsById[String(reportId)];
+  return totals ? totals : emptyReportTotals();
+}
+
 function enrichReport(report) {
   const totals = reportTotals(report.ReportID);
   return Object.assign({}, report, totals);
@@ -511,15 +600,14 @@ function logAction(userId, action, details) {
 function handleLogin(data) {
   const phone = String(data.phone || "").trim();
   const pin = String(data.pin || "").trim();
-  const users = getObjects(SHEETS.Users.name);
-  const shops = getObjects(SHEETS.Shops.name);
+  const users = getObjectsCached(SHEETS.Users.name, 300);
+  const shops = getObjectsCached(SHEETS.Shops.name, 300);
   const user = users.find(function (row) {
     return String(row.Phone).trim() === phone && String(row.PIN).trim() === pin;
   });
   if (!user) return { success: false, error: "Invalid phone or PIN." };
   if (user.Status !== "Active") return { success: false, error: "Account inactive." };
   const shop = shops.find(function (row) { return String(row.ShopID) === String(user.ShopID); });
-  logAction(user.UserID, "LOGIN", "Successful login.");
   return {
     success: true,
     user: {
@@ -537,8 +625,8 @@ function handleLogin(data) {
 }
 
 function handleGetUsers() {
-  const shops = getObjects(SHEETS.Shops.name);
-  const users = getObjects(SHEETS.Users.name).map(function (user) {
+  const shops = getObjectsCached(SHEETS.Shops.name, 300);
+  const users = getObjectsCached(SHEETS.Users.name, 300).map(function (user) {
     const shop = shops.find(function (row) { return String(row.ShopID) === String(user.ShopID); });
     const copy = Object.assign({}, user, { EmployeeID: user.UserID, ShopName: shop ? shop.ShopName : "" });
     delete copy.PIN;
@@ -550,7 +638,7 @@ function handleGetUsers() {
 function handleCreateShop(data) {
   const shopName = String(data.shopName || "").trim();
   if (!shopName) return { success: false, error: "Shop name is required." };
-  const shops = getObjects(SHEETS.Shops.name);
+  const shops = getObjectsCached(SHEETS.Shops.name, 300);
   if (shops.some(function (shop) { return String(shop.ShopName).toLowerCase() === shopName.toLowerCase(); })) {
     return { success: false, error: "Shop already exists." };
   }
@@ -581,7 +669,7 @@ function handleUpdateShop(data) {
 function handleCreateUser(data) {
   const phone = String(data.phone || "").trim();
   if (!phone) return { success: false, error: "Phone is required." };
-  const users = getObjects(SHEETS.Users.name);
+  const users = getObjectsCached(SHEETS.Users.name, 300);
   if (users.some(function (user) { return String(user.Phone).trim() === phone; })) {
     return { success: false, error: "Phone number already exists." };
   }
@@ -674,7 +762,7 @@ function validateSubmission(data, requireSales, requireStock) {
   if (requireStock && stocks.length === 0) return "Stock rows are required.";
 
   const activeProducts = {};
-  getObjects(SHEETS.Products.name).forEach(function (product) {
+  getObjectsCached(SHEETS.Products.name, 300).forEach(function (product) {
     if (product.Active === "Yes") activeProducts[String(product.ProductID)] = true;
   });
 
@@ -705,7 +793,7 @@ function handleGetOpeningStock(data) {
   const shopId = data.shopId || "";
   const date = normalizeDate(data.date || new Date());
   const shop = findShop(shopId) || {};
-  const products = getObjects(SHEETS.Products.name).filter(function (product) { return product.Active === "Yes"; });
+  const products = getObjectsCached(SHEETS.Products.name, 300).filter(function (product) { return product.Active === "Yes"; });
   const overrides = getObjects(SHEETS.OpeningStock.name).filter(function(row) {
     return String(row.ShopID) === String(shopId);
   });
@@ -730,9 +818,23 @@ function handleGetOpeningStock(data) {
   return { success: true, openingStock: openingStock };
 }
 
+function handleGetInitialData(data) {
+  const shopId = String(data.shopId || "");
+  const employeeId = String(data.employeeId || "");
+  const date = normalizeDate(data.date || new Date());
+  const openingStock = handleGetOpeningStock({ shopId: shopId, employeeId: employeeId, date: date }).openingStock;
+
+  return {
+    success: true,
+    shops: getObjectsCached(SHEETS.Shops.name, 300),
+    products: getObjectsCached(SHEETS.Products.name, 300),
+    openingStock: openingStock
+  };
+}
+
 function resolveProductId(productId, productName) {
   if (productId) return String(productId);
-  const product = getObjects(SHEETS.Products.name).find(function(row) {
+  const product = getObjectsCached(SHEETS.Products.name, 300).find(function(row) {
     return String(row.ProductName) === String(productName || "");
   });
   return product ? String(product.ProductID) : "";
@@ -1009,17 +1111,23 @@ function handleGetDashboard(data) {
   const date = normalizeDate(data.date || new Date());
   const month = data.month || date.slice(0, 7);
   const shopId = data.shopId || "";
-  const sales = getObjects(SHEETS.DailySalesEntries.name)
+  const allSales = getObjects(SHEETS.DailySalesEntries.name);
+  const allStocks = getObjects(SHEETS.DailyStockEntries.name);
+  const allReports = getObjects(SHEETS.DailyReports.name);
+  const allCollections = getObjects(SHEETS.Collections.name);
+
+  const sales = allSales
     .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
     .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); });
-  const stocks = getObjects(SHEETS.DailyStockEntries.name)
+  const stocks = allStocks
     .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
     .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); });
-  const reports = getObjects(SHEETS.DailyReports.name)
+  const totalsByReport = buildReportTotalsById(sales, stocks);
+  const reports = allReports
     .filter(function (row) { return normalizeDate(row.Date).slice(0, 7) === month; })
     .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); })
-    .map(enrichReport);
-  const collections = getObjects(SHEETS.Collections.name)
+    .map(function (report) { return Object.assign({}, report, reportTotalsFromMap(report.ReportID, totalsByReport)); });
+  const collections = allCollections
     .filter(function (row) { return String(row.Month) === String(month); })
     .filter(function (row) { return !shopId || String(row.ShopID) === String(shopId); })
     .sort(function (a, b) { return String(a.Date).localeCompare(String(b.Date)); });
@@ -1081,7 +1189,7 @@ function handleGetDashboard(data) {
     topSellingProducts: Object.keys(byProduct).sort(function (a, b) { return byProduct[b] - byProduct[a]; }).slice(0, 6).map(function (key) { return { name: key, value: byProduct[key] }; }),
     mismatchByProduct: Object.keys(mismatchByProduct).map(function (key) { return { name: key, value: mismatchByProduct[key], mismatch: mismatchByProduct[key] }; }),
     todaySubmissions: dateReports.map(function (report) {
-      const totals = reportTotals(report.ReportID);
+      const totals = reportTotalsFromMap(report.ReportID, totalsByReport);
       const collection = collections.find(function (row) { return String(row.ShopID) === String(report.ShopID) && normalizeDate(row.Date) === normalizeDate(report.Date); });
       return {
         ReportID: report.ReportID,
@@ -1144,7 +1252,7 @@ function handleGetTodayCollection(data) {
 function handleSubmitDailyCollection(data) {
   if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
   if (!data.signature) return { success: false, error: "Signature confirmation is required before submitting collection." };
-  const user = getObjects(SHEETS.Users.name).find(function (row) { return String(row.UserID) === String(data.employeeId); });
+  const user = getObjectsCached(SHEETS.Users.name, 300).find(function (row) { return String(row.UserID) === String(data.employeeId); });
   if (!user || user.Role !== "Employee" || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
   if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return { success: false, error: "Employee can submit collection only for assigned shop." };
 
@@ -1283,7 +1391,7 @@ function handleGetCreditSalesReport(data) {
 
 function handleSubmitLiveWeight(data) {
   if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
-  const user = getObjects(SHEETS.Users.name).find(function (row) { return String(row.UserID) === String(data.employeeId); });
+  const user = getObjectsCached(SHEETS.Users.name, 300).find(function (row) { return String(row.UserID) === String(data.employeeId); });
   if (!user || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
 
   const date = normalizeDate(data.date);

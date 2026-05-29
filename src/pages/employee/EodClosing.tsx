@@ -6,7 +6,6 @@ import {
   ArrowRight,
   Boxes,
   Building2,
-  Calendar,
   CheckCircle2,
   Save,
   Send
@@ -335,15 +334,8 @@ export const EodClosing: React.FC = () => {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="date"
-                    value={date}
-                    max={getLocalDateInputValue()}
-                    onChange={(event) => setDate(event.target.value)}
-                    className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring"
-                  />
+                <div className="rounded-lg border border-input bg-secondary/50 px-3 py-3 text-base font-bold text-foreground">
+                  {date}
                 </div>
               </div>
               {selectedShop && (
