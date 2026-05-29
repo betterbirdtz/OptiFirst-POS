@@ -8,7 +8,6 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import Collections from "./pages/admin/Collections";
 import DailySales from "./pages/admin/DailySales";
 import DailyStock from "./pages/admin/DailyStock";
-import LiveWeight from "./pages/admin/LiveWeight";
 import ManageEmployees from "./pages/admin/ManageEmployees";
 import ManageProducts from "./pages/admin/ManageProducts";
 import Reports from "./pages/admin/Reports";
@@ -65,7 +64,6 @@ export const App: React.FC = () => {
           <Route path="/admin/daily-sales" element={<ProtectedRoute allowedRoles={["Admin"]}><DailySales /></ProtectedRoute>} />
           <Route path="/admin/daily-stock" element={<ProtectedRoute allowedRoles={["Admin"]}><DailyStock /></ProtectedRoute>} />
           <Route path="/admin/collections" element={<ProtectedRoute allowedRoles={["Admin"]}><Collections /></ProtectedRoute>} />
-          <Route path="/admin/live-weight" element={<ProtectedRoute allowedRoles={["Admin"]}><LiveWeight /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>

@@ -17,15 +17,19 @@ interface MtnItem {
 }
 
 interface SentMtnRow {
+  MTNID: string;
   MTNNo: string;
   MTNDate: string;
   From: string;
+  ToShopID: string;
   ToShopName: string;
+  EmployeeName: string;
   ProductName: string;
   QtyAsPerMTN: number;
   QtyReceived: number;
+  Variance: number;
   Status: string;
-  ProductID?: string;
+  Complaint: string;
 }
 
 export const AdminMTN: React.FC = () => {
@@ -35,7 +39,7 @@ export const AdminMTN: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [mtnNo, setMtnNo] = useState("");
   const [mtnDate, setMtnDate] = useState(getLocalDateInputValue());
-  const [fromLocation, setFromLocation] = useState("Cold Room");
+  const [fromLocation, setFromLocation] = useState("HO / Cold Room");
   const [toShopId, setToShopId] = useState("");
   const [items, setItems] = useState<MtnItem[]>([]);
   const [sentMtns, setSentMtns] = useState<SentMtnRow[]>([]);
@@ -110,14 +114,15 @@ export const AdminMTN: React.FC = () => {
 
     setSubmitting(true);
     const selectedShop = shops.find((s) => s.ShopID === toShopId);
+    const toName = toShopId === "HO" ? "HO / Cold Room" : selectedShop?.ShopName || "";
     try {
       const res = await appsScriptClient.submitMTN({
         mtnNo: mtnNo.trim(),
         mtnDate,
         from: fromLocation,
-        to: selectedShop?.ShopName || "",
-        shopId: toShopId,
-        shopName: selectedShop?.ShopName || "",
+        to: toName,
+        shopId: toShopId === "COLD_ROOM" || toShopId === "HO" ? "" : toShopId,
+        shopName: toName,
         employeeId: "",
         employeeName: "Admin",
         items: filledItems.map((item) => ({
@@ -132,7 +137,7 @@ export const AdminMTN: React.FC = () => {
       });
 
       if (res.success) {
-        setSuccess(`MTN ${mtnNo.trim()} sent to ${selectedShop?.ShopName}. Saved to Google Sheet.`);
+        setSuccess(`MTN ${mtnNo.trim()} sent: ${fromLocation} → ${toName}. Saved to Google Sheet.`);
         setMtnNo("");
         setItems(products.map((p) => ({ productId: p.ProductID, productName: p.ProductName, uom: p.UOM, quantity: 0, rate: p.DefaultRate, amount: 0 })));
         loadSentMtns();
@@ -171,8 +176,20 @@ export const AdminMTN: React.FC = () => {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">MTN No. *</label><input value={mtnNo} onChange={(e) => setMtnNo(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Opti/MTN/00208" /></div>
               <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">Date</label><input type="date" value={mtnDate} onChange={(e) => setMtnDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" /></div>
-              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">From</label><input value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Cold Room" /></div>
-              <div><label className="mb-1.5 block text-xs font-bold text-muted-foreground">To (Shop) *</label><select value={toShopId} onChange={(e) => setToShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring">{shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}</select></div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">From *</label>
+                <select value={fromLocation} onChange={(e) => setFromLocation(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring">
+                  <option value="HO / Cold Room">HO / Cold Room</option>
+                  {shops.map((s) => <option key={s.ShopID} value={s.ShopName}>{s.ShopName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-muted-foreground">To *</label>
+                <select value={toShopId} onChange={(e) => setToShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring">
+                  <option value="HO">HO / Cold Room</option>
+                  {shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}
+                </select>
+              </div>
             </div>
           </section>
 
@@ -208,20 +225,69 @@ export const AdminMTN: React.FC = () => {
 
           {groupedSent.length > 0 && (
             <section className="rounded-lg border border-border bg-card shadow-sm">
-              <div className="border-b border-border p-4"><h2 className="text-sm font-black">Sent Vouchers ({groupedSent.length})</h2></div>
+              <div className="border-b border-border p-4"><h2 className="text-sm font-black">MTN History ({groupedSent.length} vouchers)</h2></div>
               <div className="divide-y divide-border/60">
-                {groupedSent.sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)).map((mtn) => (
-                  <div key={mtn.mtnNo} className="p-4 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold">{mtn.mtnNo}</p>
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${mtn.allReceived ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{mtn.allReceived ? "Received" : "Pending"}</span>
-                        <p className="text-xs text-muted-foreground">{formatDateForDisplay(mtn.mtnDate)}</p>
+                {groupedSent.sort((a, b) => b.mtnDate.localeCompare(a.mtnDate)).map((mtn) => {
+                  const hasMismatch = mtn.items.some((r) => Number(r.QtyReceived) > 0 && Number(r.Variance) !== 0);
+                  const complaint = mtn.items.find((r) => r.Complaint)?.Complaint || "";
+                  return (
+                    <div key={mtn.mtnNo} className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-black">{mtn.mtnNo}</p>
+                          <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {formatDateForDisplay(mtn.mtnDate)}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {hasMismatch && <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-black text-red-700">Mismatch</span>}
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${mtn.allReceived ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{mtn.allReceived ? "Received" : "Pending"}</span>
+                        </div>
                       </div>
+
+                      {/* Items detail table */}
+                      <div className="overflow-x-auto rounded-lg border border-border">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-secondary/50 text-muted-foreground">
+                            <tr>
+                              <th className="p-2 font-bold">Product</th>
+                              <th className="p-2 font-bold text-right">Sent</th>
+                              <th className="p-2 font-bold text-right">Received</th>
+                              <th className="p-2 font-bold text-right">Variance</th>
+                              <th className="p-2 font-bold">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {mtn.items.map((row, j) => (
+                              <tr key={j}>
+                                <td className="p-2 font-semibold">{row.ProductName}</td>
+                                <td className="p-2 text-right font-bold">{Number(row.QtyAsPerMTN)}</td>
+                                <td className="p-2 text-right font-bold">{Number(row.QtyReceived) || "-"}</td>
+                                <td className={`p-2 text-right font-black ${Number(row.Variance) === 0 ? "text-green-700" : Number(row.Variance) < 0 ? "text-red-700" : "text-amber-700"}`}>
+                                  {Number(row.QtyReceived) > 0 ? (Number(row.Variance) === 0 ? "✓" : `${Number(row.Variance) > 0 ? "+" : ""}${Number(row.Variance)}`) : "-"}
+                                </td>
+                                <td className="p-2">
+                                  <span className={`text-[10px] font-bold ${String(row.Status).toLowerCase() === "received" ? "text-green-700" : "text-amber-700"}`}>{row.Status || "Sent"}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Complaint/Reason if any */}
+                      {complaint && (
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                          <p className="text-xs font-bold text-red-800">⚠ Employee Note:</p>
+                          <p className="text-xs text-red-700 mt-0.5">{complaint}</p>
+                        </div>
+                      )}
+
+                      {/* Received by */}
+                      {mtn.allReceived && mtn.items[0]?.EmployeeName && (
+                        <p className="text-[10px] text-muted-foreground">Received by: {mtn.items[0].EmployeeName}</p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{mtn.from} → {mtn.toShopName} · {mtn.items.length} items</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           )}

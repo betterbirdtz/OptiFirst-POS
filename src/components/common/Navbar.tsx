@@ -10,7 +10,6 @@ import {
   LogOut,
   Menu,
   Package,
-  Scale,
   ShoppingBag,
   Users,
   WalletCards,
@@ -35,8 +34,7 @@ const adminLinks: NavigationItem[] = [
   { to: "/admin/reports", label: "Approvals", shortLabel: "Approve", icon: ClipboardCheck },
   { to: "/admin/daily-sales", label: "Sales & Credit", shortLabel: "Sales", icon: ShoppingBag },
   { to: "/admin/daily-stock", label: "Stock & Mismatch", shortLabel: "Stock", icon: Boxes },
-  { to: "/admin/collections", label: "Collections", shortLabel: "Collect", icon: WalletCards },
-  { to: "/admin/live-weight", label: "Live Weight", shortLabel: "Weight", icon: Scale }
+  { to: "/admin/collections", label: "Collections", shortLabel: "Collect", icon: WalletCards }
 ];
 
 const employeeLinks: NavigationItem[] = [
