@@ -1,230 +1,207 @@
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, ArrowLeft, RefreshCw, Edit2, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
+import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
-import type { DailySalesEntry, DailyStockEntry, DailySummaryEntry, UserSession } from "../../types";
-import { formatDateForDisplay, formatDateTimeForDisplay, getLocalDateInputValue } from "../../utils/date";
+import type { CollectionEntry, DailySalesEntry, DailyStockEntry, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
+import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
 
 export const MyReports: React.FC = () => {
   const navigate = useNavigate();
-  const [reports, setReports] = useState<DailySummaryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingReportId, setLoadingReportId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [detailSales, setDetailSales] = useState<DailySalesEntry[]>([]);
-  const [detailStocks, setDetailStocks] = useState<DailyStockEntry[]>([]);
-
   const [user] = useState<UserSession | null>(() => getSessionUser());
-  const today = getLocalDateInputValue();
+  const [startDate, setStartDate] = useState(getLocalDateInputValue());
+  const [endDate, setEndDate] = useState(getLocalDateInputValue());
 
-  const fetchReports = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    setError("");
-    try {
-      const response = await appsScriptClient.getEmployeeReports(user.employeeId);
-      if (response.success && response.reports) {
-        const sorted = response.reports.sort((a: DailySummaryEntry, b: DailySummaryEntry) => new Date(b.SubmittedAt).getTime() - new Date(a.SubmittedAt).getTime());
-        setReports(sorted);
-      } else {
-        setError("Failed to load reports.");
-      }
-    } catch { setError("Network error."); }
-    finally { setLoading(false); }
-  }, [user]);
+  const [sales, setSales] = useState<DailySalesEntry[]>([]);
+  const [stocks, setStocks] = useState<DailyStockEntry[]>([]);
+  const [collections, setCollections] = useState<CollectionEntry[]>([]);
+  const [mtns, setMtns] = useState<Array<{ MTNNo: string; MTNDate: string; From: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Variance: number; Status: string }>>([]);
+
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    fetchReports();
-  }, [fetchReports, navigate, user]);
+    loadData();
+  }, []);
 
-  const toggleExpand = async (report: DailySummaryEntry) => {
-    if (expandedId === report.ReportID) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(report.ReportID);
-    setLoadingReportId(report.ReportID);
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    setLoading(true); setError(""); setLoaded(false);
     try {
-      const response = await appsScriptClient.getReportsByDate(report.Date, report.Date, user?.employeeId);
-      if (response.success) {
-        setDetailSales((response.sales || []).filter((s: DailySalesEntry) => s.ReportID === report.ReportID));
-        setDetailStocks((response.stocks || []).filter((s: DailyStockEntry) => s.ReportID === report.ReportID));
-      }
-    } catch { /* ignore */ }
-    finally { setLoadingReportId(null); }
+      const shopId = user.shopId || "";
+      const [salesRes, stockRes, collRes, mtnRes] = await Promise.all([
+        appsScriptClient.getDailySalesReport({ shopId, startDate, endDate }),
+        appsScriptClient.getDailyStockReport({ shopId, startDate, endDate }),
+        appsScriptClient.getCollections({ shopId, startDate, endDate }),
+        appsScriptClient.getMTNsForShop(shopId)
+      ]);
+
+      setSales((salesRes.sales || []).filter((s) => s.EmployeeID === user.employeeId));
+      setStocks((stockRes.stocks || []).filter((s) => s.EmployeeID === user.employeeId));
+      setCollections((collRes.collections || []).filter((c) => c.EmployeeID === user.employeeId));
+      setMtns(((mtnRes as any).mtns || []).filter((m: any) => m.EmployeeID === user.employeeId));
+      setLoaded(true);
+    } catch { setError("Failed to load data."); }
+    finally { setLoading(false); }
+  }, [user, startDate, endDate]);
+
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    if (sales.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sales.map((s) => ({ Date: formatDateForDisplay(s.Date), Product: s.ProductName, Qty: s.Quantity, Rate: s.Rate, Type: s.SaleType, Customer: s.CustomerName, Amount: s.TotalAmount }))), "Sales");
+    if (stocks.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(stocks.map((s) => ({ Date: formatDateForDisplay(s.Date), Product: s.ProductName, Opening: s.OpeningStock, Receipt: s.Receipt, Sales: s.Sales, Expected: s.ExpectedClosing, Actual: s.ActualClosing, Mismatch: s.Mismatch }))), "Stock");
+    if (collections.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(collections.map((c) => ({ Date: formatDateForDisplay(c.Date), CashSales: c.CashSales, DepositCash: c.DepositCash, LIPA: c.DepositLIPA, Variance: c.Variance, Bank: c.DepositInBank, EFD: c.EFDZReport, Status: c.Status }))), "Collection");
+    if (mtns.length > 0) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mtns.map((m) => ({ MTN: m.MTNNo, Date: m.MTNDate, From: m.From, To: m.ToShopName, Product: m.ProductName, Sent: m.QtyAsPerMTN, Received: m.QtyReceived, Variance: m.Variance, Status: m.Status }))), "MTN");
+    XLSX.writeFile(wb, `My_Data_${startDate}_to_${endDate}.xlsx`);
   };
 
-  const handleEdit = (report: DailySummaryEntry) => {
-    navigate("/employee/closing", {
-      state: {
-        resubmitReport: {
-          reportId: report.ReportID,
-          shopId: report.ShopID,
-          date: report.Date.split("T")[0],
-          salesEntries: detailSales.map((s) => ({ productId: s.ProductID, productName: s.ProductName, uom: s.UOM, quantity: Number(s.Quantity), rate: Number(s.Rate), saleType: s.SaleType, customerName: s.CustomerName || undefined, efdNumber: s.EFDNumber || undefined })),
-          stockEntries: detailStocks.map((s) => ({ productId: s.ProductID, productName: s.ProductName, category: s.Category, uom: s.UOM, openingStock: Number(s.OpeningStock), receipt: Number(s.Receipt), sales: Number(s.Sales), actualClosing: Number(s.ActualClosing) }))
-        }
-      }
-    });
-  };
-
-  const canEdit = (report: DailySummaryEntry) => {
-    const reportDate = report.Date.split("T")[0];
-    return reportDate === today || report.Status === "Reopened";
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Approved": return "bg-green-100 text-green-800 border-green-200";
-      case "Rejected": return "bg-red-100 text-red-800 border-red-200";
-      case "Reopened": return "bg-orange-100 text-orange-800 border-orange-200";
-      default: return "bg-blue-100 text-blue-800 border-blue-200";
-    }
-  };
+  const totalSales = sales.reduce((s, r) => s + Number(r.TotalAmount || 0), 0);
+  const totalMismatch = stocks.filter((s) => Number(s.Mismatch) !== 0).length;
 
   return (
-    <div className="mx-auto max-w-lg px-3 py-4 pb-28 sm:max-w-4xl sm:px-6 lg:px-8 space-y-5">
+    <div className="mx-auto max-w-lg space-y-4 px-3 py-4 pb-28 sm:max-w-4xl sm:px-6 sm:py-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/employee/dashboard")} className="p-2 border border-border hover:bg-secondary rounded-lg text-muted-foreground"><ArrowLeft className="h-4 w-4" /></button>
+          <button onClick={() => navigate("/employee/dashboard")} className="rounded-lg border border-border p-2 text-muted-foreground active:bg-secondary"><ArrowLeft className="h-4 w-4" /></button>
           <div>
-            <h1 className="text-xl font-black flex items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />My Reports</h1>
-            <p className="text-xs text-muted-foreground">View full details of all submissions. Edit same-day or reopened reports.</p>
+            <h1 className="text-lg font-black">My Submissions</h1>
+            <p className="text-[10px] text-muted-foreground">All your sales, stock, collection & MTN data</p>
           </div>
         </div>
-        <button onClick={fetchReports} disabled={loading} className="p-2 border border-border rounded-lg hover:bg-secondary text-muted-foreground"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button>
+        {loaded && (sales.length > 0 || stocks.length > 0) && (
+          <button onClick={exportExcel} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground active:bg-primary/90">
+            <Download className="h-3.5 w-3.5" /> Excel
+          </button>
+        )}
       </div>
 
-      {error && <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>}
-
-      {loading && reports.length === 0 ? (
-        <div className="flex justify-center py-12"><div className="h-8 w-8 border-4 border-t-transparent border-primary rounded-full animate-spin"></div></div>
-      ) : reports.length === 0 ? (
-        <div className="text-center py-16 bg-card border border-border rounded-2xl text-muted-foreground">
-          <ClipboardList className="h-12 w-12 mx-auto opacity-20 mb-3" />
-          <p className="text-sm font-medium">No submissions yet.</p>
+      {/* Date filter */}
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-card p-3">
+        <div>
+          <label className="mb-1 block text-[10px] font-bold text-muted-foreground">From</label>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
         </div>
-      ) : (
-        <div className="space-y-3">
-          {reports.map((report) => (
-            <div key={report.ReportID} className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-              {/* Summary Row - Click to expand */}
-              <button type="button" onClick={() => toggleExpand(report)} className="w-full p-4 text-left flex items-center justify-between gap-3 hover:bg-secondary/30">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-black">{formatDateForDisplay(report.Date)}</p>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${getStatusColor(report.Status)}`}>{report.Status}</span>
-                    {canEdit(report) && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">Editable</span>}
-                  </div>
-                  <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                    <span>Total: <strong className="text-foreground">{formatCurrency(report.TotalSales)}</strong></span>
-                    <span>Cash: <strong className="text-green-700">{formatCurrency(report.CashSales)}</strong></span>
-                    <span>Credit: <strong className="text-amber-700">{formatCurrency(report.CreditSales)}</strong></span>
-                    <span>Mismatch: <strong className={report.StockMismatch > 0 ? "text-red-700" : "text-green-700"}>{report.StockMismatch}</strong></span>
-                  </div>
-                </div>
-                {expandedId === report.ReportID ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-              </button>
+        <div>
+          <label className="mb-1 block text-[10px] font-bold text-muted-foreground">To</label>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
+        </div>
+      </div>
+      <button onClick={loadData} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50 active:scale-[0.97]">
+        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> {loading ? "Loading..." : "Load My Data"}
+      </button>
 
-              {/* Expanded Detail */}
-              {expandedId === report.ReportID && (
-                <div className="border-t border-border p-4 space-y-4 bg-secondary/10">
-                  {loadingReportId === report.ReportID ? (
-                    <div className="flex justify-center py-4"><div className="h-5 w-5 border-2 border-t-transparent border-primary rounded-full animate-spin"></div></div>
-                  ) : (
-                    <>
-                      {/* Sales Detail */}
-                      <div>
-                        <h4 className="text-xs font-black text-muted-foreground mb-2">Sales Items ({detailSales.length})</h4>
-                        {detailSales.length === 0 ? <p className="text-xs text-muted-foreground">No sales entries.</p> : (
-                          <div className="overflow-x-auto rounded-lg border border-border">
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-secondary/50 text-muted-foreground">
-                                <tr>
-                                  <th className="p-2 font-bold">Product</th>
-                                  <th className="p-2 font-bold text-right">Qty</th>
-                                  <th className="p-2 font-bold text-right">Rate</th>
-                                  <th className="p-2 font-bold">Type</th>
-                                  <th className="p-2 font-bold">Customer</th>
-                                  <th className="p-2 font-bold text-right">Amount</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-border/60">
-                                {detailSales.map((s, i) => (
-                                  <tr key={i}>
-                                    <td className="p-2 font-semibold">{s.ProductName}</td>
-                                    <td className="p-2 text-right">{s.Quantity} {s.UOM}</td>
-                                    <td className="p-2 text-right">{formatCurrency(s.Rate)}</td>
-                                    <td className={`p-2 font-bold ${s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}`}>{s.SaleType}</td>
-                                    <td className="p-2">{s.CustomerName || "-"}</td>
-                                    <td className="p-2 text-right font-black">{formatCurrency(s.TotalAmount)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
+      {error && <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><AlertCircle className="h-5 w-5" />{error}</div>}
 
-                      {/* Stock Detail */}
-                      <div>
-                        <h4 className="text-xs font-black text-muted-foreground mb-2">Stock Entries ({detailStocks.length})</h4>
-                        {detailStocks.length === 0 ? <p className="text-xs text-muted-foreground">No stock entries.</p> : (
-                          <div className="overflow-x-auto rounded-lg border border-border">
-                            <table className="w-full text-left text-xs">
-                              <thead className="bg-secondary/50 text-muted-foreground">
-                                <tr>
-                                  <th className="p-2 font-bold">Product</th>
-                                  <th className="p-2 font-bold text-right">Opening</th>
-                                  <th className="p-2 font-bold text-right">Receipt</th>
-                                  <th className="p-2 font-bold text-right">Sales</th>
-                                  <th className="p-2 font-bold text-right">Expected</th>
-                                  <th className="p-2 font-bold text-right">Actual</th>
-                                  <th className="p-2 font-bold text-right">Mismatch</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-border/60">
-                                {detailStocks.map((s, i) => (
-                                  <tr key={i}>
-                                    <td className="p-2 font-semibold">{s.ProductName}</td>
-                                    <td className="p-2 text-right">{s.OpeningStock}</td>
-                                    <td className="p-2 text-right">{s.Receipt}</td>
-                                    <td className="p-2 text-right">{s.Sales}</td>
-                                    <td className="p-2 text-right">{s.ExpectedClosing}</td>
-                                    <td className="p-2 text-right font-bold">{s.ActualClosing}</td>
-                                    <td className={`p-2 text-right font-black ${Number(s.Mismatch) === 0 ? "text-green-700" : "text-red-700"}`}>{Number(s.Mismatch) === 0 ? "✓" : s.Mismatch}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Submitted info */}
-                      <div className="text-xs text-muted-foreground">Submitted: {formatDateTimeForDisplay(report.SubmittedAt)}</div>
-
-                      {/* Edit button */}
-                      {canEdit(report) && (
-                        <div className="flex justify-end pt-2 border-t border-border">
-                          <button onClick={() => handleEdit(report)} className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90">
-                            <Edit2 className="h-3.5 w-3.5" /> Edit & Resubmit
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+      {loaded && (
+        <div className="space-y-4">
+          {/* Summary */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-border bg-card p-3 text-center">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase">Sales</p>
+              <p className="mt-1 text-sm font-black text-primary">{formatCurrency(totalSales)}</p>
             </div>
-          ))}
+            <div className="rounded-lg border border-border bg-card p-3 text-center">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase">Entries</p>
+              <p className="mt-1 text-sm font-black">{sales.length}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-card p-3 text-center">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase">Mismatch</p>
+              <p className={`mt-1 text-sm font-black ${totalMismatch > 0 ? "text-red-700" : "text-green-700"}`}>{totalMismatch}</p>
+            </div>
+          </div>
+
+          {/* Daily Sales */}
+          {sales.length > 0 && (
+            <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-border p-3 bg-green-50"><ShoppingBag className="h-4 w-4 text-green-700" /><h2 className="text-xs font-black text-green-800">Daily Sales ({sales.length})</h2></div>
+              <div className="divide-y divide-border/60">
+                {sales.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between p-3">
+                    <div>
+                      <p className="text-sm font-bold">{s.ProductName}</p>
+                      <p className="text-[10px] text-muted-foreground">{formatDateForDisplay(s.Date)} · {s.Quantity} {s.UOM} × {formatCurrency(s.Rate)} · <span className={s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}>{s.SaleType}</span>{s.CustomerName ? ` · ${s.CustomerName}` : ""}</p>
+                    </div>
+                    <p className="text-sm font-black">{formatCurrency(s.TotalAmount)}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Stock Closing */}
+          {stocks.length > 0 && (
+            <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-border p-3 bg-blue-50"><Boxes className="h-4 w-4 text-blue-700" /><h2 className="text-xs font-black text-blue-800">Stock Closing ({stocks.length})</h2></div>
+              <div className="divide-y divide-border/60">
+                {stocks.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between p-3">
+                    <div>
+                      <p className="text-sm font-bold">{s.ProductName}</p>
+                      <p className="text-[10px] text-muted-foreground">{formatDateForDisplay(s.Date)} · Open: {s.OpeningStock} · Sales: {s.Sales} · Actual: {s.ActualClosing}</p>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${Number(s.Mismatch) === 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      {Number(s.Mismatch) === 0 ? "✓" : `${Number(s.Mismatch) > 0 ? "+" : ""}${s.Mismatch}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Collection */}
+          {collections.length > 0 && (
+            <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-border p-3 bg-purple-50"><WalletCards className="h-4 w-4 text-purple-700" /><h2 className="text-xs font-black text-purple-800">Collection ({collections.length})</h2></div>
+              <div className="divide-y divide-border/60">
+                {collections.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between p-3">
+                    <div>
+                      <p className="text-sm font-bold">{formatDateForDisplay(c.Date)}</p>
+                      <p className="text-[10px] text-muted-foreground">Cash: {formatCurrency(c.DepositCash)} · LIPA: {formatCurrency(c.DepositLIPA)} · Bank: {formatCurrency(c.DepositInBank)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs font-black ${c.Variance === 0 ? "text-green-700" : "text-red-700"}`}>{formatCurrency(c.Variance)}</p>
+                      <span className={`text-[9px] font-bold ${c.Status === "Approved" ? "text-green-700" : "text-blue-700"}`}>{c.Status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* MTN */}
+          {mtns.length > 0 && (
+            <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 border-b border-border p-3 bg-amber-50"><ClipboardList className="h-4 w-4 text-amber-700" /><h2 className="text-xs font-black text-amber-800">MTN Receipt ({mtns.length})</h2></div>
+              <div className="divide-y divide-border/60">
+                {mtns.map((m, i) => (
+                  <div key={i} className="flex items-center justify-between p-3">
+                    <div>
+                      <p className="text-sm font-bold">{m.ProductName}</p>
+                      <p className="text-[10px] text-muted-foreground">{m.MTNNo} · {m.From} → {m.ToShopName} · Sent: {Number(m.QtyAsPerMTN)} · Received: {Number(m.QtyReceived) || "-"}</p>
+                    </div>
+                    <span className={`text-[10px] font-black ${String(m.Status).toLowerCase() === "received" ? "text-green-700" : "text-amber-700"}`}>{m.Status || "Sent"}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Empty state */}
+          {sales.length === 0 && stocks.length === 0 && collections.length === 0 && mtns.length === 0 && (
+            <div className="rounded-xl border border-border bg-card p-12 text-center">
+              <ClipboardList className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+              <p className="text-sm font-bold text-muted-foreground">No data for this date range</p>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 };
+
 export default MyReports;
