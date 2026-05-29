@@ -14,6 +14,7 @@ import Reports from "./pages/admin/Reports";
 import Shops from "./pages/admin/Shops";
 import AdminMTN from "./pages/admin/AdminMTN";
 import OpeningStockPage from "./pages/admin/OpeningStock";
+import EmployeeData from "./pages/admin/EmployeeData";
 import EmployeeDashboard from "./pages/employee/EmployeeDashboard";
 import MyReports from "./pages/employee/MyReports";
 import DailySalesEntry from "./pages/employee/DailySalesEntry";
@@ -64,6 +65,7 @@ export const App: React.FC = () => {
           <Route path="/admin/daily-sales" element={<ProtectedRoute allowedRoles={["Admin"]}><DailySales /></ProtectedRoute>} />
           <Route path="/admin/daily-stock" element={<ProtectedRoute allowedRoles={["Admin"]}><DailyStock /></ProtectedRoute>} />
           <Route path="/admin/collections" element={<ProtectedRoute allowedRoles={["Admin"]}><Collections /></ProtectedRoute>} />
+          <Route path="/admin/employee-data" element={<ProtectedRoute allowedRoles={["Admin"]}><EmployeeData /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
