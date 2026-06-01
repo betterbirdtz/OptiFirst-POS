@@ -85,7 +85,7 @@ export const Navbar: React.FC = () => {
       {user.role === "Admin" && (
         <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-card lg:flex lg:flex-col">
           <Link to="/admin/dashboard" className="flex h-16 items-center gap-3 border-b border-border px-5">
-            <img src="/logo.jpeg" alt="OptiFirst" className="h-9 w-9 rounded-lg object-cover" />
+            <img src="/logo.jpeg" alt="OptiFirst" className="h-10 w-10 rounded-lg object-cover" />
             <div className="min-w-0">
               <p className="truncate text-sm font-black">OptiFirst POS</p>
               <p className="text-[11px] font-semibold text-muted-foreground">Better Bird reporting</p>
@@ -114,7 +114,7 @@ export const Navbar: React.FC = () => {
       <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur lg:hidden">
         <div className="flex min-h-14 items-center justify-between px-3">
           <Link to={user.role === "Admin" ? "/admin/dashboard" : "/employee/dashboard"} className="flex items-center gap-2">
-            <img src="/logo.jpeg" alt="OptiFirst" className="h-8 w-8 rounded-lg object-cover" />
+            <img src="/logo.jpeg" alt="OptiFirst" className="h-9 w-9 rounded-lg object-cover" />
             <div>
               <p className="text-sm font-black leading-tight">OptiFirst POS</p>
               <p className="text-[11px] text-muted-foreground">{user.shopName || user.role}</p>

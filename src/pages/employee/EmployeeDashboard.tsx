@@ -64,9 +64,12 @@ export const EmployeeDashboard: React.FC = () => {
     <div className="mx-auto max-w-lg space-y-4 px-4 py-4 pb-28">
       {/* Header - compact */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-black">Hi, {user?.name?.split(" ")[0]}!</h1>
-          <p className="text-xs text-muted-foreground">{user?.shopName || "OptiFirst POS"}</p>
+        <div className="flex items-center gap-3">
+          <img src="/logo.jpeg" alt="OptiFirst" className="h-11 w-11 rounded-xl object-cover shadow-sm" />
+          <div>
+            <h1 className="text-lg font-black">Hi, {user?.name?.split(" ")[0]}!</h1>
+            <p className="text-xs text-muted-foreground">{user?.shopName || "OptiFirst POS"}</p>
+          </div>
         </div>
         <button type="button" onClick={() => { localStorage.removeItem("session_user"); navigate("/login", { replace: true }); }} className="rounded-lg border border-border p-2.5 text-muted-foreground hover:bg-secondary active:bg-secondary/80">
           <LogOut className="h-4 w-4" />

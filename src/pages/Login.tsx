@@ -59,7 +59,7 @@ export const Login: React.FC = () => {
         {/* Left column (Desktop only illustration) */}
         <div className="hidden bg-slate-900 p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
-            <img src="/logo.jpeg" alt="OptiFirst" className="h-12 w-12 rounded-lg object-cover" />
+            <img src="/logo.jpeg" alt="OptiFirst" className="h-20 w-20 rounded-xl object-cover shadow-lg" />
             <h1 className="mt-8 max-w-md text-3xl font-black leading-tight">OptiFirst TZ daily sales, stock, and collection reporting</h1>
             <p className="mt-4 max-w-md text-sm leading-6 text-slate-300">
               Employees submit one daily report per shop. Admin reviews sales, deposits, EFD variance, credit sales, and stock mismatches from one dashboard.
@@ -72,7 +72,7 @@ export const Login: React.FC = () => {
         <div className="p-6 sm:p-10 flex flex-col justify-center">
           <div className="mb-7">
             <div className="flex items-center gap-2 lg:hidden">
-              <img src="/logo.jpeg" alt="OptiFirst" className="h-9 w-9 rounded-lg object-cover" />
+              <img src="/logo.jpeg" alt="OptiFirst" className="h-12 w-12 rounded-xl object-cover shadow-md" />
               <span className="text-base font-black tracking-tight text-foreground">OptiFirst TZ</span>
             </div>
             <h2 className="mt-5 text-2xl font-black tracking-tight">Sign in</h2>
