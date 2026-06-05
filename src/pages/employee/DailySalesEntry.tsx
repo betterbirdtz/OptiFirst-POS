@@ -259,9 +259,10 @@ export const DailySalesEntry: React.FC = () => {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
-                <div className="rounded-lg border border-input bg-secondary/50 px-3 py-3 text-base font-bold text-foreground">
-                  {date}
+                <div className="relative">
+                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
                 </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">You can select a past date if you missed submitting.</p>
               </div>
               <button type="button" onClick={() => setStep(2)} disabled={!shopId || !date} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
                 <ShoppingBag className="h-4 w-4" /> Continue to Sales

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
-import type { CollectionEntry, DailySalesEntry, DailyStockEntry, UserSession } from "../../types";
+import type { CollectionEntry, DailySalesEntry, DailyStockEntry, DailySummaryEntry, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
 import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { getSessionUser } from "../../utils/session";
@@ -18,6 +18,7 @@ export const MyReports: React.FC = () => {
   const [stocks, setStocks] = useState<DailyStockEntry[]>([]);
   const [collections, setCollections] = useState<CollectionEntry[]>([]);
   const [mtns, setMtns] = useState<Array<{ MTNNo: string; MTNDate: string; From: string; ToShopName: string; ProductName: string; QtyAsPerMTN: number; QtyReceived: number; Variance: number; Status: string }>>([]);
+  const [reopenedReports, setReopenedReports] = useState<DailySummaryEntry[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -44,10 +45,46 @@ export const MyReports: React.FC = () => {
       setStocks((stockRes.stocks || []).filter((s) => s.EmployeeID === user.employeeId));
       setCollections((collRes.collections || []).filter((c) => c.EmployeeID === user.employeeId));
       setMtns(((mtnRes as any).mtns || []).filter((m: any) => m.EmployeeID === user.employeeId));
+
+      // Load reopened reports that need re-editing
+      const reportsRes = await appsScriptClient.getEmployeeReports(user.employeeId);
+      if (reportsRes.success && reportsRes.reports) {
+        setReopenedReports(reportsRes.reports.filter((r) => r.Status === "Reopened"));
+      }
+
       setLoaded(true);
     } catch { setError("Failed to load data."); }
     finally { setLoading(false); }
   }, [user, startDate, endDate]);
+
+  const handleEditReopened = async (report: DailySummaryEntry) => {
+    if (!user) return;
+    try {
+      const response = await appsScriptClient.getReportsByDate(report.Date, report.Date, user.employeeId);
+      if (response.success) {
+        const reportSales = (response.sales || []).filter((s: DailySalesEntry) => s.ReportID === report.ReportID);
+        navigate("/employee/daily-sales", {
+          state: {
+            resubmitReport: {
+              reportId: report.ReportID,
+              shopId: report.ShopID,
+              date: String(report.Date).split("T")[0],
+              salesEntries: reportSales.map((s) => ({
+                productId: s.ProductID,
+                productName: s.ProductName,
+                uom: s.UOM,
+                quantity: Number(s.Quantity),
+                rate: Number(s.Rate),
+                saleType: s.SaleType,
+                customerName: s.CustomerName || undefined,
+                efdNumber: s.EFDNumber || undefined
+              }))
+            }
+          }
+        });
+      }
+    } catch { /* */ }
+  };
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -95,6 +132,28 @@ export const MyReports: React.FC = () => {
       </button>
 
       {error && <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><AlertCircle className="h-5 w-5" />{error}</div>}
+
+      {/* Reopened Reports - Need Re-editing */}
+      {reopenedReports.length > 0 && (
+        <section className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
+          <h2 className="text-sm font-black text-orange-800">⚠ Reopened by Admin — Edit Required ({reopenedReports.length})</h2>
+          <p className="text-[10px] text-orange-700">Admin has reopened these reports. Please correct and resubmit.</p>
+          {reopenedReports.map((report) => (
+            <div key={report.ReportID} className="flex items-center justify-between rounded-lg border border-orange-200 bg-white p-3">
+              <div>
+                <p className="text-sm font-bold">{formatDateForDisplay(report.Date)}</p>
+                <p className="text-[10px] text-muted-foreground">Sales: {formatCurrency(report.TotalSales)} · Mismatch: {report.StockMismatch}</p>
+              </div>
+              <button
+                onClick={() => handleEditReopened(report)}
+                className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white active:bg-orange-700"
+              >
+                <Edit2 className="h-3.5 w-3.5" /> Edit
+              </button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {loaded && (
         <div className="space-y-4">

@@ -20,6 +20,7 @@ export const OpeningStock: React.FC = () => {
   const [shops, setShops] = useState<Shop[]>([]);
   const [stockEntries, setStockEntries] = useState<OpeningStockEntry[]>([]);
   const [selectedShopId, setSelectedShopId] = useState("");
+  const [stockDate, setStockDate] = useState(getLocalDateInputValue());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -48,11 +49,11 @@ export const OpeningStock: React.FC = () => {
     if (!selectedShopId) return;
     loadStock();
     loadTransferLogs();
-  }, [selectedShopId]);
+  }, [selectedShopId, stockDate]);
 
   const loadStock = async () => {
     try {
-      const res = await appsScriptClient.getOpeningStock(selectedShopId, getLocalDateInputValue());
+      const res = await appsScriptClient.getOpeningStock(selectedShopId, stockDate);
       if (res.success && res.openingStock) {
         setStockEntries(res.openingStock);
       } else {
@@ -107,7 +108,7 @@ export const OpeningStock: React.FC = () => {
           return;
         }
       }
-      const refreshed = await appsScriptClient.getOpeningStock(selectedShopId, getLocalDateInputValue());
+      const refreshed = await appsScriptClient.getOpeningStock(selectedShopId, stockDate);
       if (!refreshed.success || !refreshed.openingStock) {
         setError(refreshed.error || "Opening stock saved, but reload failed.");
         return;
@@ -145,12 +146,18 @@ export const OpeningStock: React.FC = () => {
         <div className="flex justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* Shop selector */}
-          <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <label className="mb-1.5 block text-sm font-bold">Select Shop</label>
-            <select value={selectedShopId} onChange={(e) => setSelectedShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring">
-              {shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}
-            </select>
+          {/* Shop & Date selector */}
+          <div className="rounded-lg border border-border bg-card p-4 shadow-sm space-y-3">
+            <div>
+              <label className="mb-1.5 block text-sm font-bold">Select Shop</label>
+              <select value={selectedShopId} onChange={(e) => setSelectedShopId(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring">
+                {shops.map((s) => <option key={s.ShopID} value={s.ShopID}>{s.ShopName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-bold">Date (adjust opening stock for any day)</label>
+              <input type="date" value={stockDate} onChange={(e) => setStockDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+            </div>
           </div>
 
           {/* Current Opening Stock */}
@@ -158,7 +165,7 @@ export const OpeningStock: React.FC = () => {
             <div className="space-y-4">
               <div className="rounded-lg border border-border bg-card p-4">
                 <h2 className="text-sm font-black">Current Opening Stock — {selectedShop.ShopName}</h2>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Date: {formatDateForDisplay(getLocalDateInputValue())}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Date: {formatDateForDisplay(stockDate)}</p>
               </div>
 
               {Object.entries(groupedByCategory).map(([category, entries]) => (

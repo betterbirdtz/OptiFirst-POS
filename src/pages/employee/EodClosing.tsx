@@ -334,9 +334,10 @@ export const EodClosing: React.FC = () => {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
-                <div className="rounded-lg border border-input bg-secondary/50 px-3 py-3 text-base font-bold text-foreground">
-                  {date}
+                <div className="relative">
+                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(event) => setDate(event.target.value)} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
                 </div>
+                <p className="mt-1 text-[10px] text-muted-foreground">You can select a past date if you missed submitting.</p>
               </div>
               {selectedShop && (
                 <div className="rounded-lg border border-border bg-secondary/50 p-3 text-sm">
