@@ -74,8 +74,12 @@ export const DailySalesEntry: React.FC = () => {
         if (prodRes.success && prodRes.products) {
           const active = prodRes.products.filter((p) => p.Active === "Yes");
           setProducts(active);
-          if (active.length > 0 && !location.state) {
+          if (active.length > 0 && !location.state && bulkRows.length === 0) {
             setBulkRows(active.map((p) => ({ checked: false, productId: p.ProductID, quantity: "", rate: String(p.DefaultRate || ""), saleType: "Cash" as const, paymentMode: "Cash", customerName: "" })));
+          }
+          // If editing a reopened report, jump to step 2 after products load
+          if (location.state && (location.state as any).resubmitReport) {
+            setStep(2);
           }
         }
       } catch { setError("Failed to load data."); }
@@ -99,7 +103,7 @@ export const DailySalesEntry: React.FC = () => {
       setShopId(state.resubmitReport.shopId || user?.shopId || "");
       setDate(state.resubmitReport.date || getLocalDateInputValue());
       setSalesEntries(state.resubmitReport.salesEntries || []);
-      // Pre-fill bulk rows with existing data and go to step 2
+      // Pre-fill bulk rows with existing data
       if (state.resubmitReport.salesEntries && state.resubmitReport.salesEntries.length > 0) {
         setBulkRows(state.resubmitReport.salesEntries.map((item: any) => ({
           checked: true,
@@ -111,7 +115,6 @@ export const DailySalesEntry: React.FC = () => {
           customerName: item.customerName || ""
         })));
         setDraftSynced(true);
-        setStep(2);
       }
       return;
     }
