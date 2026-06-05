@@ -99,6 +99,20 @@ export const DailySalesEntry: React.FC = () => {
       setShopId(state.resubmitReport.shopId || user?.shopId || "");
       setDate(state.resubmitReport.date || getLocalDateInputValue());
       setSalesEntries(state.resubmitReport.salesEntries || []);
+      // Pre-fill bulk rows with existing data and go to step 2
+      if (state.resubmitReport.salesEntries && state.resubmitReport.salesEntries.length > 0) {
+        setBulkRows(state.resubmitReport.salesEntries.map((item: any) => ({
+          checked: true,
+          productId: item.productId,
+          quantity: String(item.quantity),
+          rate: String(item.rate),
+          saleType: item.saleType as "Cash" | "Credit",
+          paymentMode: item.paymentMode || "Cash",
+          customerName: item.customerName || ""
+        })));
+        setDraftSynced(true);
+        setStep(2);
+      }
       return;
     }
 
