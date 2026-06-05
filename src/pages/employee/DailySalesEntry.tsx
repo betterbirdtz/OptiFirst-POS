@@ -74,7 +74,7 @@ export const DailySalesEntry: React.FC = () => {
         if (prodRes.success && prodRes.products) {
           const active = prodRes.products.filter((p) => p.Active === "Yes");
           setProducts(active);
-          if (active.length > 0) {
+          if (active.length > 0 && !location.state) {
             setBulkRows(active.map((p) => ({ checked: false, productId: p.ProductID, quantity: "", rate: String(p.DefaultRate || ""), saleType: "Cash" as const, paymentMode: "Cash", customerName: "" })));
           }
         }
