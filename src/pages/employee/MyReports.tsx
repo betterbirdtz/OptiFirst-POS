@@ -3,9 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
 import type { CollectionEntry, DailySalesEntry, DailyStockEntry, DailySummaryEntry, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
 import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
+import { exportSectionsToPdf } from "../../utils/exportPdf";
+import { buildReportFilename } from "../../utils/reportTransforms";
 import { getSessionUser } from "../../utils/session";
 
 export const MyReports: React.FC = () => {
@@ -76,6 +79,38 @@ export const MyReports: React.FC = () => {
     XLSX.writeFile(wb, `My_Data_${startDate}_to_${endDate}.xlsx`);
   };
 
+  const exportPdf = () => {
+    exportSectionsToPdf({
+      title: "My Submissions",
+      filename: buildReportFilename("My_Submissions", startDate, endDate),
+      startDate,
+      endDate,
+      generatedBy: user?.name,
+      sections: [
+        {
+          title: "Daily Sales",
+          headers: ["Date", "Product", "Qty", "Type", "Amount"],
+          rows: sales.map((row) => [formatDateForDisplay(row.Date), row.ProductName, row.Quantity, row.SaleType, formatCurrency(row.TotalAmount)])
+        },
+        {
+          title: "Stock Closing",
+          headers: ["Date", "Product", "Opening", "Sales", "Actual", "Mismatch"],
+          rows: stocks.map((row) => [formatDateForDisplay(row.Date), row.ProductName, row.OpeningStock, row.Sales, row.ActualClosing, row.Mismatch])
+        },
+        {
+          title: "Collection",
+          headers: ["Date", "Cash", "LIPA", "Bank", "Variance", "Status"],
+          rows: collections.map((row) => [formatDateForDisplay(row.Date), formatCurrency(row.DepositCash), formatCurrency(row.DepositLIPA), formatCurrency(row.DepositInBank), formatCurrency(row.Variance), row.Status])
+        },
+        {
+          title: "MTN",
+          headers: ["MTN", "Date", "Product", "Sent", "Received", "Status"],
+          rows: mtns.map((row) => [row.MTNNo, formatDateForDisplay(row.MTNDate), row.ProductName, row.QtyAsPerMTN, row.QtyReceived, row.Status])
+        }
+      ]
+    });
+  };
+
   const totalSales = sales.reduce((s, r) => s + Number(r.TotalAmount || 0), 0);
   const totalMismatch = stocks.filter((s) => Number(s.Mismatch) !== 0).length;
 
@@ -90,23 +125,21 @@ export const MyReports: React.FC = () => {
             <p className="text-[10px] text-muted-foreground">All your sales, stock, collection & MTN data</p>
           </div>
         </div>
-        {loaded && (sales.length > 0 || stocks.length > 0) && (
-          <button onClick={exportExcel} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground active:bg-primary/90">
-            <Download className="h-3.5 w-3.5" /> Excel
-          </button>
+        {loaded && (sales.length > 0 || stocks.length > 0 || collections.length > 0 || mtns.length > 0) && (
+          <div className="flex gap-2">
+            <button onClick={exportExcel} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-bold active:bg-secondary">
+              <Download className="h-3.5 w-3.5" /> Excel
+            </button>
+            <button onClick={exportPdf} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground active:bg-primary/90">
+              <Download className="h-3.5 w-3.5" /> PDF
+            </button>
+          </div>
         )}
       </div>
 
       {/* Date filter */}
-      <div className="grid grid-cols-2 gap-2 rounded-lg border border-border bg-card p-3">
-        <div>
-          <label className="mb-1 block text-[10px] font-bold text-muted-foreground">From</label>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-        <div>
-          <label className="mb-1 block text-[10px] font-bold text-muted-foreground">To</label>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-        </div>
+      <div className="rounded-lg border border-border bg-card p-3">
+        <DateRangeFilter startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} compact />
       </div>
       <button onClick={loadData} disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50 active:scale-[0.97]">
         <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> {loading ? "Loading..." : "Load My Data"}

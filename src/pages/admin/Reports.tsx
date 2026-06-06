@@ -6,6 +6,7 @@ import {
   Check,
   Eye,
   FileCheck,
+  FileDown,
   FileSpreadsheet,
   Info,
   RefreshCw,
@@ -20,6 +21,7 @@ import type { DailySalesEntry, DailyStockEntry, DailySummaryEntry, Employee, Rep
 import { formatCurrency } from "../../utils/calculations";
 import { formatDateForDisplay, formatDateTimeForDisplay, getLocalDateInputValue } from "../../utils/date";
 import { exportReportWorkbook } from "../../utils/exportExcel";
+import { exportSectionsToPdf } from "../../utils/exportPdf";
 import { buildReportFilename, getEmployeeSummary, normalizeReportBundle } from "../../utils/reportTransforms";
 import { getSessionUser } from "../../utils/session";
 
@@ -145,6 +147,55 @@ export const Reports: React.FC = () => {
     exportReportWorkbook(bundle, buildReportFilename("All_Report_Data", startDate, endDate));
   };
 
+  const handlePdfExport = () => {
+    exportSectionsToPdf({
+      title: "Reports and Approvals",
+      filename: buildReportFilename("All_Report_Data", startDate, endDate),
+      startDate,
+      endDate,
+      generatedBy: user?.name,
+      sections: [
+        {
+          title: "Summary",
+          headers: ["Date", "Employee", "Cash", "Credit", "Total", "Mismatch", "Status"],
+          rows: bundle.summaries.map((row) => [
+            formatDateForDisplay(row.Date),
+            row.EmployeeName,
+            formatCurrency(row.CashSales),
+            formatCurrency(row.CreditSales),
+            formatCurrency(row.TotalSales),
+            row.StockMismatch,
+            row.Status
+          ])
+        },
+        {
+          title: "Daily Sales",
+          headers: ["Date", "Shop", "Product", "Qty", "Type", "Total"],
+          rows: bundle.sales.map((row) => [
+            formatDateForDisplay(row.Date),
+            row.ShopName,
+            row.ProductName,
+            row.Quantity,
+            row.SaleType,
+            formatCurrency(row.TotalAmount)
+          ])
+        },
+        {
+          title: "Daily Stock",
+          headers: ["Date", "Shop", "Product", "Expected", "Actual", "Mismatch"],
+          rows: bundle.stocks.map((row) => [
+            formatDateForDisplay(row.Date),
+            row.ShopName,
+            row.ProductName,
+            row.ExpectedClosing,
+            row.ActualClosing,
+            row.Mismatch
+          ])
+        }
+      ]
+    });
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
       <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -172,6 +223,14 @@ export const Reports: React.FC = () => {
           >
             <FileSpreadsheet className="h-4 w-4" />
             Export All Excel
+          </button>
+          <button
+            onClick={handlePdfExport}
+            disabled={bundle.summaries.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-primary-foreground shadow-md shadow-primary/20 disabled:opacity-50"
+          >
+            <FileDown className="h-4 w-4" />
+            Export PDF
           </button>
         </div>
       </div>

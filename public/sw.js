@@ -1,63 +1,21 @@
-const CACHE_NAME = "optifirst-v2";
-const STATIC_ASSETS = [
-  "/",
-  "/index.html",
-  "/manifest.webmanifest",
-  "/favicon.svg"
-];
-
-// Install: cache static assets
+// OptiFirst POS is online-only. This service worker exists only to clear
+// legacy caches from earlier builds and then get out of the request path.
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
   );
   self.skipWaiting();
 });
 
-// Activate: clean old caches
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
-    )
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
+      .then(() => self.registration.unregister())
   );
-  self.clients.claim();
 });
 
-// Fetch: network-first for API, cache-first for assets
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-
-  // Skip non-GET and API calls
-  if (event.request.method !== "GET") return;
-  if (url.href.includes("script.google.com")) return;
-  if (url.href.includes("googleapis.com")) return;
-
-  // For navigation (HTML pages): network first, fallback to cache
-  if (event.request.mode === "navigate") {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match("/index.html"))
-    );
-    return;
-  }
-
-  // For static assets: network first (Vite uses hashed filenames so new deploys = new URLs)
-  if (url.pathname.startsWith("/assets/") || url.pathname.endsWith(".svg") || url.pathname.endsWith(".png") || url.pathname.endsWith(".webmanifest")) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          return response;
-        })
-        .catch(() => caches.match(event.request))
-    );
-    return;
-  }
+self.addEventListener("fetch", () => {
+  return;
 });

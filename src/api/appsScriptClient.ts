@@ -654,6 +654,10 @@ function filterCollections(data: ApiData): CollectionEntry[] {
 }
 
 function submitMockCollection(submission: CollectionSubmission): ApiResponse {
+  const resolvedDate = resolveMockSubmissionDate(submission);
+  if (resolvedDate.error) return { success: false, error: resolvedDate.error };
+  submission = { ...submission, date: resolvedDate.date || getLocalDateInputValue() };
+
   const user = getUsers().find((item) => item.UserID === submission.employeeId);
   const shop = getShops().find((item) => item.ShopID === submission.shopId);
   if (!user || user.Role !== "Employee" || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
@@ -662,6 +666,10 @@ function submitMockCollection(submission: CollectionSubmission): ApiResponse {
   if (!submission.signature?.trim()) return { success: false, error: "Signature confirmation is required before submitting collection." };
 
   const reportDate = normalizeSheetDate(submission.date);
+  const existingCollection = getCollections().find((row) => row.ShopID === submission.shopId && normalizeSheetDate(row.Date) === reportDate);
+  if (existingCollection && (existingCollection.Status === "Submitted" || existingCollection.Status === "Approved")) {
+    return { success: false, error: "Collection already submitted for this date. Ask admin to reopen if correction needed." };
+  }
   let base = upsertCollectionForShopDate(submission.shopId, reportDate, submission.reportId, submission.employeeId, submission.employeeName);
   if (!base.ReportID) {
     const existingReport = getReports().find((row) => row.ShopID === submission.shopId && normalizeSheetDate(row.Date) === reportDate);
@@ -751,7 +759,29 @@ function getOpeningStock(shopId: string, date: string): OpeningStockEntry[] {
     });
 }
 
+function getTanzaniaDateValue(date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Dar_es_Salaam", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function getYesterdayTanzaniaDateValue(): string {
+  return getTanzaniaDateValue(new Date(Date.now() - 24 * 60 * 60 * 1000));
+}
+
+function resolveMockSubmissionDate(submission: { date: string; dateIntent?: "today" | "manual-backdate" }): { date?: string; error?: string } {
+  const today = getLocalDateInputValue();
+  const submittedDate = normalizeSheetDate(submission.date);
+  const isManualBackdate = submission.dateIntent === "manual-backdate";
+  if (!submittedDate) return { date: today };
+  if (submittedDate > today) return { error: "Cannot submit for a future date" };
+  if (submittedDate === getYesterdayTanzaniaDateValue() && !isManualBackdate) return { date: today };
+  return { date: submittedDate };
+}
+
 function submitMockReport(submission: DailyReportSubmission, mode: "sales" | "stock" | "full"): ApiResponse {
+  const resolvedDate = resolveMockSubmissionDate(submission);
+  if (resolvedDate.error) return { success: false, error: resolvedDate.error };
+  submission = { ...submission, date: resolvedDate.date || getLocalDateInputValue() };
+
   const validationError = validateSubmission(submission, mode !== "stock", mode !== "sales");
   if (validationError) return { success: false, error: validationError };
 
@@ -759,9 +789,12 @@ function submitMockReport(submission: DailyReportSubmission, mode: "sales" | "st
   const reportDate = normalizeSheetDate(submission.date);
   const existingIndex = submission.reportId
     ? reports.findIndex((report) => report.ReportID === submission.reportId)
-    : reports.findIndex((report) => report.ShopID === submission.shopId && normalizeSheetDate(report.Date) === reportDate);
+    : reports.findIndex((report) => report.ShopID === submission.shopId && normalizeSheetDate(report.Date) === reportDate && report.EmployeeID === submission.employeeId);
 
   const existingReport = existingIndex >= 0 ? reports[existingIndex] : undefined;
+  if (!submission.reportId && (existingReport?.Status === "Submitted" || existingReport?.Status === "Approved")) {
+    return { success: false, error: "Already submitted for this date. Ask admin to reopen if correction needed." };
+  }
   if (existingReport?.Status === "Approved") {
     return { success: false, error: "Approved reports cannot be changed. Ask admin to reopen it first." };
   }
@@ -1460,8 +1493,7 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
   }
 }
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 min for static data
-const SHORT_CACHE_TTL = 60 * 1000; // 1 min for dynamic data
+const CACHE_TTL = 5 * 60 * 1000; // 5 min for static setup data only
 const cache = new Map<string, { data: ApiResponse; timestamp: number; ttl: number }>();
 
 function getCached(key: string): ApiResponse | null {
@@ -1484,6 +1516,7 @@ async function runSetup(url: string): Promise<boolean> {
     const response = await fetch(url, {
       method: "POST",
       mode: "cors",
+      cache: "no-store",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "setupSheets", data: {} })
     });
@@ -1508,18 +1541,14 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
 
   // Cacheable reads - static data (5 min cache)
   const staticReads = ["getShops", "getProducts", "getUsers", "getEmployees"];
-  // Cacheable reads - dynamic data (1 min cache)
-  const dynamicReads = ["getInitialData", "getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getShopPrices"];
+  const uncachedReads = ["getInitialData", "getOpeningStock", "getTodayOpeningStock", "getMyReports", "getEmployeeReports", "getDailySalesReport", "getDailyStockReport", "getTodayReport", "getTodayCollection", "getCollections", "getDashboard", "getAdminDashboard", "getReportsByDate", "getShopPrices"];
   const cacheKey = `${action}_${JSON.stringify(data)}`;
 
   if (staticReads.includes(action)) {
     const cached = getCached(cacheKey);
     if (cached) return cached;
   }
-  if (dynamicReads.includes(action)) {
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-  }
+  if (uncachedReads.includes(action)) invalidateCache();
 
   const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight", "saveShopPrices"];
   if (writeActions.includes(action)) {
@@ -1534,6 +1563,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
     const response = await fetch(url, {
       method: "POST",
       mode: "cors",
+      cache: "no-store",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: requestBody,
       signal: controller.signal
@@ -1546,6 +1576,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
       const retryResponse = await fetch(url, {
         method: "POST",
         mode: "cors",
+        cache: "no-store",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: requestBody
       });
@@ -1555,7 +1586,6 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
 
     if (result.success) {
       if (staticReads.includes(action)) setCache(cacheKey, result, CACHE_TTL);
-      else if (dynamicReads.includes(action)) setCache(cacheKey, result, SHORT_CACHE_TTL);
     }
 
     return result;

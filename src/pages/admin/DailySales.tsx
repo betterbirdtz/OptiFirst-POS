@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FileDown, FileSpreadsheet, RefreshCw, ShoppingBag } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
 import type { DailySalesEntry, Shop, User, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
 import { formatDateForDisplay, getDateRangeLabel, getLocalDateInputValue } from "../../utils/date";
@@ -230,7 +231,7 @@ export const Filters: React.FC<{
   employeeId?: string;
   setEmployeeId?: (value: string) => void;
 }> = ({ shops, shopId, setShopId, startDate, setStartDate, endDate, setEndDate, employees, employeeId, setEmployeeId }) => (
-  <div className="grid gap-3 rounded-lg border border-border bg-card p-3 sm:grid-cols-3 lg:grid-cols-4">
+  <div className="grid gap-3 rounded-lg border border-border bg-card p-3 lg:grid-cols-[220px_220px_1fr]">
     <select value={shopId} onChange={(event) => setShopId(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold">
       <option value="">All Shops</option>
       {shops.map((shop) => (
@@ -245,8 +246,9 @@ export const Filters: React.FC<{
         ))}
       </select>
     )}
-    <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
-    <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
+    <div className={employees && setEmployeeId ? "" : "lg:col-span-2"}>
+      <DateRangeFilter startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} />
+    </div>
   </div>
 );
 

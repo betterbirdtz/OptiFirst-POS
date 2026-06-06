@@ -1,6 +1,7 @@
 import React from "react";
-import { Calendar, Search, User } from "lucide-react";
+import { Search, User } from "lucide-react";
 import type { Employee } from "../../types";
+import DateRangeFilter from "../common/DateRangeFilter";
 
 interface ReportFiltersProps {
   startDate: string;
@@ -28,33 +29,13 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
         <span>Filter Criteria</span>
       </h3>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-        <div>
-          <label className="block text-[11px] font-semibold text-muted-foreground mb-1 flex items-center space-x-1">
-            <Calendar className="h-3 w-3" />
-            <span>Start Date</span>
-          </label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(event) => onStartDateChange(event.target.value)}
-            className="w-full rounded-xl border border-input bg-background px-3 py-3 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-ring sm:py-2 sm:text-xs"
-          />
-        </div>
-
-        <div>
-          <label className="block text-[11px] font-semibold text-muted-foreground mb-1 flex items-center space-x-1">
-            <Calendar className="h-3 w-3" />
-            <span>End Date</span>
-          </label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(event) => onEndDateChange(event.target.value)}
-            className="w-full rounded-xl border border-input bg-background px-3 py-3 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-ring sm:py-2 sm:text-xs"
-          />
-        </div>
-
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_260px]">
+        <DateRangeFilter
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={onStartDateChange}
+          onEndDateChange={onEndDateChange}
+        />
         <div>
           <label className="block text-[11px] font-semibold text-muted-foreground mb-1 flex items-center space-x-1">
             <User className="h-3 w-3" />
@@ -63,7 +44,7 @@ export const ReportFilters: React.FC<ReportFiltersProps> = ({
           <select
             value={employeeId}
             onChange={(event) => onEmployeeChange(event.target.value)}
-            className="w-full rounded-xl border border-input bg-background px-3 py-3 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-ring sm:py-2 sm:text-xs"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">All Employees</option>
             {employees.map((employee) => (

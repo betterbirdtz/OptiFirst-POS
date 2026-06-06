@@ -6,7 +6,9 @@ import {
   Banknote,
   Check,
   CreditCard,
+  FileDown,
   FileCheck,
+  FileSpreadsheet,
   RefreshCw,
   ShoppingBag,
   Wallet,
@@ -26,10 +28,12 @@ import {
   XAxis,
   YAxis
 } from "recharts";
+import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { DashboardData, ReportStatus, Shop, UserSession } from "../../types";
 import { formatCurrency, formatNumber } from "../../utils/calculations";
 import { formatDateForDisplay, getLocalDateInputValue, getMonthInputValue } from "../../utils/date";
+import { exportSectionsToPdf } from "../../utils/exportPdf";
 import { getSessionUser } from "../../utils/session";
 
 const emptyDashboard: DashboardData = {
@@ -157,6 +161,56 @@ export const AdminDashboard: React.FC = () => {
     else setError(response.error || "Report status update failed.");
   };
 
+  const exportDashboardExcel = () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(cards.map((card) => ({ Metric: card.label, Value: card.value }))), "Summary");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.todaySubmissions), "TodaySubmissions");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.collectionSummary), "Collections");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(dashboard.stockMismatchRows), "StockMismatch");
+    XLSX.writeFile(workbook, `Admin_Dashboard_${date}_${month}.xlsx`);
+  };
+
+  const exportDashboardPdf = () => {
+    exportSectionsToPdf({
+      title: "Admin Dashboard",
+      filename: `Admin_Dashboard_${date}_${month}`,
+      startDate: date,
+      endDate: date,
+      generatedBy: user?.name,
+      sections: [
+        {
+          title: "Summary",
+          headers: ["Metric", "Value"],
+          rows: cards.map((card) => [card.label, card.value])
+        },
+        {
+          title: "Today Submissions",
+          headers: ["Shop", "Employee", "Sales", "Stock", "Collection", "Approval"],
+          rows: dashboard.todaySubmissions.map((row) => [
+            row.Shop,
+            row.Employee,
+            formatCurrency(row.SalesTotal),
+            row.StockStatus,
+            row.CollectionStatus,
+            row.ApprovalStatus
+          ])
+        },
+        {
+          title: "Collections",
+          headers: ["Date", "Shop", "Cash", "Credit", "Total", "Variance"],
+          rows: dashboard.collectionSummary.map((row) => [
+            formatDateForDisplay(row.Date),
+            row.ShopName,
+            formatCurrency(row.CashSales),
+            formatCurrency(row.CreditSales),
+            formatCurrency(row.TotalSales),
+            formatCurrency(row.Variance)
+          ])
+        }
+      ]
+    });
+  };
+
   const cards = [
     { label: "Total Sales", value: formatCurrency(dashboard.stats.totalSales), icon: ShoppingBag, tone: "text-slate-900" },
     { label: "Cash Sales", value: formatCurrency(dashboard.stats.cashSales), icon: Banknote, tone: "text-green-700" },
@@ -182,7 +236,7 @@ export const AdminDashboard: React.FC = () => {
           </p>
         </div>
 
-        <div className="grid gap-2 rounded-lg border border-border bg-card p-2 shadow-sm sm:grid-cols-[220px_160px_160px_auto]">
+        <div className="grid gap-2 rounded-lg border border-border bg-card p-2 shadow-sm sm:grid-cols-[220px_160px_160px_auto_auto_auto]">
           <select
             value={shopId}
             onChange={(event) => setShopId(event.target.value)}
@@ -216,6 +270,24 @@ export const AdminDashboard: React.FC = () => {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={exportDashboardExcel}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-bold disabled:opacity-60"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-green-700" />
+            Excel
+          </button>
+          <button
+            type="button"
+            onClick={exportDashboardPdf}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-bold text-primary-foreground disabled:opacity-60"
+          >
+            <FileDown className="h-4 w-4" />
+            PDF
           </button>
         </div>
       </div>

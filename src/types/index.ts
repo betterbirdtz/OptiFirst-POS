@@ -233,6 +233,7 @@ export interface DailyReportSubmission {
   employeeId: string;
   employeeName: string;
   date: string;
+  dateIntent?: "today" | "manual-backdate";
   salesEntries: SalesSubmissionItem[];
   stockEntries: StockSubmissionItem[];
 }
@@ -244,6 +245,7 @@ export interface CollectionSubmission {
   employeeId: string;
   employeeName: string;
   date: string;
+  dateIntent?: "today" | "manual-backdate";
   depositCash: number;
   depositLIPA: number;
   depositInBank: number;

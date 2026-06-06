@@ -32,6 +32,9 @@ export const DailySalesEntry: React.FC = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [draftSynced, setDraftSynced] = useState(false);
+  const [dateManuallySelected, setDateManuallySelected] = useState(false);
+  const [isReportEdit, setIsReportEdit] = useState(false);
+  const [checkingExisting, setCheckingExisting] = useState(false);
 
   const selectedShop = shops.find((s) => s.ShopID === shopId);
   const activeShops = shops.filter((s) => s.Status === "Active");
@@ -100,6 +103,7 @@ export const DailySalesEntry: React.FC = () => {
 
     if (state?.resubmitReport) {
       setReportId(state.resubmitReport.reportId);
+      setIsReportEdit(true);
       setShopId(state.resubmitReport.shopId || user?.shopId || "");
       setDate(state.resubmitReport.date || getLocalDateInputValue());
       setSalesEntries(state.resubmitReport.salesEntries || []);
@@ -125,9 +129,8 @@ export const DailySalesEntry: React.FC = () => {
       const parsed = JSON.parse(draft);
       if (parsed.employeeId === user?.employeeId) {
         if (parsed.shopId) setShopId(parsed.shopId);
-        // Only restore date if it matches today (don't carry over yesterday's date)
-        const today = getLocalDateInputValue();
-        if (parsed.date && parsed.date === today) setDate(parsed.date);
+        setDate(getLocalDateInputValue());
+        setDateManuallySelected(false);
         if (parsed.salesEntries) setSalesEntries(parsed.salesEntries);
       }
     } catch {
@@ -205,16 +208,54 @@ export const DailySalesEntry: React.FC = () => {
     window.alert("Draft saved.");
   };
 
+  const getSubmitDate = () => {
+    const today = getLocalDateInputValue();
+    return (isReportEdit || dateManuallySelected) && date < today ? date : today;
+  };
+
+  const isLockedStatus = (status?: string) => status === "Submitted" || status === "Approved";
+
+  const continueToSales = async () => {
+    if (!user || !selectedShop || !date) return;
+    if (isReportEdit) { setStep(2); return; }
+    const submitDate = getSubmitDate();
+    setCheckingExisting(true);
+    setError("");
+    try {
+      const response = await appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, submitDate);
+      const report = response.report;
+      if (report?.SalesSubmitted === "Yes" && isLockedStatus(report.Status)) {
+        setError("Sales already submitted for this date. Ask admin to reopen if correction needed.");
+        return;
+      }
+      setDate(submitDate);
+      setStep(2);
+    } catch {
+      setError("Failed to check existing submission. Please try again.");
+    } finally {
+      setCheckingExisting(false);
+    }
+  };
+
   const submitSales = async () => {
     if (!user || !selectedShop) return;
     if (currentSalesEntries.length === 0) { setError("Add at least one item."); setConfirmOpen(false); return; }
     const missing = currentSalesEntries.find((s) => s.saleType === "Credit" && !s.customerName?.trim());
     if (missing) { setError(`Customer name required for ${missing.productName}.`); setConfirmOpen(false); return; }
-    // Use fresh today's date at submit time if user hasn't backdated
-    const submitDate = date >= getLocalDateInputValue() ? getLocalDateInputValue() : date;
+    const today = getLocalDateInputValue();
+    const submitDate = getSubmitDate();
+    const dateIntent = submitDate < today ? "manual-backdate" : "today";
     setSubmitting(true); setError("");
     try {
-      const res = await appsScriptClient.submitDailySales({ reportId, shopId: selectedShop.ShopID, shopName: selectedShop.ShopName, employeeId: user.employeeId, employeeName: user.name, date: submitDate, salesEntries: currentSalesEntries, stockEntries: [] });
+      if (!isReportEdit) {
+        const existing = await appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, submitDate);
+        if (existing.report?.SalesSubmitted === "Yes" && isLockedStatus(existing.report.Status)) {
+          setError("Sales already submitted for this date. Ask admin to reopen if correction needed.");
+          setConfirmOpen(false);
+          return;
+        }
+      }
+      const res = await appsScriptClient.submitDailySales({ reportId, shopId: selectedShop.ShopID, shopName: selectedShop.ShopName, employeeId: user.employeeId, employeeName: user.name, date: submitDate, dateIntent, salesEntries: currentSalesEntries, stockEntries: [] });
       if (res.success) { localStorage.removeItem("draft_sales"); setReportId(res.reportId); setConfirmOpen(false); setSuccess(true); }
       else { setError(res.error || "Submission failed."); setConfirmOpen(false); }
     } catch { setError("Network error. Check connection and try again."); setConfirmOpen(false); }
@@ -280,12 +321,12 @@ export const DailySalesEntry: React.FC = () => {
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
                 <div className="relative">
-                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => { setDate(e.target.value); setDateManuallySelected(true); }} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
                 </div>
                 <p className="mt-1 text-[10px] text-muted-foreground">You can select a past date if you missed submitting.</p>
               </div>
-              <button type="button" onClick={() => setStep(2)} disabled={!shopId || !date} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
-                <ShoppingBag className="h-4 w-4" /> Continue to Sales
+              <button type="button" onClick={continueToSales} disabled={!shopId || !date || checkingExisting} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+                <ShoppingBag className="h-4 w-4" /> {checkingExisting ? "Checking..." : "Continue to Sales"}
               </button>
             </div>
           )}

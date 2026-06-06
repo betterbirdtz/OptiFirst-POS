@@ -47,6 +47,8 @@ export const EodClosing: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [dateManuallySelected, setDateManuallySelected] = useState(false);
+  const [isReportEdit, setIsReportEdit] = useState(false);
 
   const activeSteps = ["Shop & Date", "Daily Stock", "Review & Submit"];
 
@@ -115,6 +117,7 @@ export const EodClosing: React.FC = () => {
 
     if (state?.resubmitReport) {
       setReportId(state.resubmitReport.reportId);
+      setIsReportEdit(true);
       setShopId(state.resubmitReport.shopId || user?.shopId || "");
       setDate(state.resubmitReport.date || getLocalDateInputValue());
       setSalesEntries(state.resubmitReport.salesEntries || []);
@@ -131,9 +134,8 @@ export const EodClosing: React.FC = () => {
       const parsed = JSON.parse(draft);
       if (parsed.employeeId === user?.employeeId) {
         if (parsed.shopId) setShopId(parsed.shopId);
-        // Only restore date if it matches today (don't carry over yesterday's date)
-        const today = getLocalDateInputValue();
-        if (parsed.date && parsed.date === today) setDate(parsed.date);
+        setDate(getLocalDateInputValue());
+        setDateManuallySelected(false);
         if (parsed.salesEntries) setSalesEntries(parsed.salesEntries);
         if (parsed.stockEntries) setStockEntries(parsed.stockEntries);
         if (parsed.stockEntries?.length) {
@@ -147,18 +149,24 @@ export const EodClosing: React.FC = () => {
 
   const loadClosingData = async () => {
     if (!selectedShop || !user) return;
+    const loadDate = getSubmitDate();
+    setDate(loadDate);
     setPreparing(true);
     setError("");
     try {
       const [reportResponse, salesResponse, stockResponse, openingResponse] = await Promise.all([
-        appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, date),
-        appsScriptClient.getDailySalesReport({ shopId: selectedShop.ShopID, startDate: date, endDate: date }),
-        appsScriptClient.getDailyStockReport({ shopId: selectedShop.ShopID, startDate: date, endDate: date }),
-        appsScriptClient.getOpeningStock(selectedShop.ShopID, date, user.employeeId)
+        appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, loadDate),
+        appsScriptClient.getDailySalesReport({ shopId: selectedShop.ShopID, startDate: loadDate, endDate: loadDate }),
+        appsScriptClient.getDailyStockReport({ shopId: selectedShop.ShopID, startDate: loadDate, endDate: loadDate }),
+        appsScriptClient.getOpeningStock(selectedShop.ShopID, loadDate, user.employeeId)
       ]);
 
       const report = reportResponse.report;
       if (report?.ReportID) setReportId(report.ReportID);
+      if (!isReportEdit && report?.StockSubmitted === "Yes" && isLockedStatus(report.Status)) {
+        setError("Stock closing already submitted for this date. Ask admin to reopen if correction needed.");
+        return;
+      }
 
       const savedSales = salesResponse.sales || [];
       const mappedSales = savedSales.map((sale: any) => ({
@@ -225,6 +233,13 @@ export const EodClosing: React.FC = () => {
     window.alert("Draft saved.");
   };
 
+  const getSubmitDate = () => {
+    const today = getLocalDateInputValue();
+    return (isReportEdit || dateManuallySelected) && date < today ? date : today;
+  };
+
+  const isLockedStatus = (status?: string) => status === "Submitted" || status === "Approved";
+
   const submitClosing = async () => {
     if (!user || !selectedShop) return;
     const blockingError = hasBlockingReportErrors([], stockEntries);
@@ -238,8 +253,17 @@ export const EodClosing: React.FC = () => {
     setSubmitting(true);
     setError("");
     try {
-      // Use fresh today's date at submit time if user hasn't backdated
-      const submitDate = date >= getLocalDateInputValue() ? getLocalDateInputValue() : date;
+      const today = getLocalDateInputValue();
+      const submitDate = getSubmitDate();
+      if (!isReportEdit) {
+        const existing = await appsScriptClient.getTodayReport(user.employeeId, selectedShop.ShopID, submitDate);
+        if (existing.report?.StockSubmitted === "Yes" && isLockedStatus(existing.report.Status)) {
+          setError("Stock closing already submitted for this date. Ask admin to reopen if correction needed.");
+          setConfirmOpen(false);
+          return;
+        }
+      }
+      const dateIntent = submitDate < today ? "manual-backdate" : "today";
       const stockResponse = await appsScriptClient.submitDailyStock({
         reportId,
         shopId: selectedShop.ShopID,
@@ -247,6 +271,7 @@ export const EodClosing: React.FC = () => {
         employeeId: user.employeeId,
         employeeName: user.name,
         date: submitDate,
+        dateIntent,
         salesEntries: [],
         stockEntries
       });
@@ -339,7 +364,7 @@ export const EodClosing: React.FC = () => {
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date</label>
                 <div className="relative">
-                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(event) => setDate(event.target.value)} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="date" value={date} max={getLocalDateInputValue()} onChange={(event) => { setDate(event.target.value); setDateManuallySelected(true); }} className="w-full rounded-lg border border-input bg-background py-3 px-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
                 </div>
                 <p className="mt-1 text-[10px] text-muted-foreground">You can select a past date if you missed submitting.</p>
               </div>

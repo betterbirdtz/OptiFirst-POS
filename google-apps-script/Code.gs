@@ -312,6 +312,29 @@ function getHeaders(sheetName) {
   return sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
 }
 
+function isDateOnlyColumn(header) {
+  return header === "Date" || header === "DateOfDeposit" || header === "MTNDate" || header === "LastUpdatedDate";
+}
+
+function isDateTimeColumn(header) {
+  return header === "CreatedAt" || header === "SubmittedAt" || header === "UpdatedAt" || header === "ApprovedAt";
+}
+
+function sheetTimeZone() {
+  return SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || "Africa/Dar_es_Salaam";
+}
+
+function serializeSheetValue(header, value) {
+  if (Object.prototype.toString.call(value) !== "[object Date]") return value;
+  if (isDateOnlyColumn(header)) {
+    return Utilities.formatDate(value, sheetTimeZone(), "yyyy-MM-dd");
+  }
+  if (isDateTimeColumn(header)) {
+    return Utilities.formatDate(value, sheetTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  }
+  return value;
+}
+
 function getObjects(sheetName) {
   const sheet = getSheet(sheetName);
   const lastRow = sheet.getLastRow();
@@ -322,7 +345,7 @@ function getObjects(sheetName) {
   for (let i = 1; i < values.length; i++) {
     const obj = {};
     headers.forEach(function (header, index) {
-      obj[header] = values[i][index];
+      obj[header] = serializeSheetValue(header, values[i][index]);
     });
     rows.push(obj);
   }
@@ -467,6 +490,24 @@ function nowIso() {
   return Utilities.formatDate(new Date(), "Africa/Dar_es_Salaam", "yyyy-MM-dd'T'HH:mm:ss");
 }
 
+function todayDarDate() {
+  return Utilities.formatDate(new Date(), "Africa/Dar_es_Salaam", "yyyy-MM-dd");
+}
+
+function yesterdayDarDate() {
+  return Utilities.formatDate(new Date(new Date().getTime() - 24 * 60 * 60 * 1000), "Africa/Dar_es_Salaam", "yyyy-MM-dd");
+}
+
+function resolveSubmissionDate(data) {
+  const todayTZ = todayDarDate();
+  const submittedDate = normalizeDate(data.date);
+  const isManualBackdate = String(data.dateIntent || "") === "manual-backdate";
+  if (!submittedDate) return { date: todayTZ };
+  if (submittedDate > todayTZ) return { error: "Cannot submit for a future date" };
+  if (submittedDate === yesterdayDarDate() && !isManualBackdate) return { date: todayTZ };
+  return { date: submittedDate };
+}
+
 function makeId(prefix) {
   return prefix + new Date().getTime() + Math.floor(Math.random() * 1000);
 }
@@ -476,7 +517,15 @@ function normalizeDate(value) {
   if (Object.prototype.toString.call(value) === "[object Date]") {
     return Utilities.formatDate(value, "Africa/Dar_es_Salaam", "yyyy-MM-dd");
   }
-  return String(value).split("T")[0];
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (text.indexOf("T") > -1 || text.indexOf("Z") > -1) {
+    const parsed = new Date(text);
+    if (!isNaN(parsed.getTime())) {
+      return Utilities.formatDate(parsed, "Africa/Dar_es_Salaam", "yyyy-MM-dd");
+    }
+  }
+  return text.split("T")[0];
 }
 
 function toNumber(value) {
@@ -856,9 +905,9 @@ function handleGetTodayReport(data) {
 }
 
 function handleSubmitReport(data, mode) {
-  var todayTZ = normalizeDate(new Date());
-  if (!data.date) data.date = todayTZ;
-  if (normalizeDate(data.date) > todayTZ) data.date = todayTZ;
+  const resolvedDate = resolveSubmissionDate(data);
+  if (resolvedDate.error) return { success: false, error: resolvedDate.error };
+  data.date = resolvedDate.date;
   const validation = validateSubmission(data, mode !== "stock", mode !== "sales");
   if (validation) return { success: false, error: validation };
 
@@ -870,7 +919,14 @@ function handleSubmitReport(data, mode) {
     if (!existing) return { success: false, error: "Reopened report not found." };
     if (existing.Status !== "Reopened" && mode === "full") return { success: false, error: "Only reopened reports can be corrected." };
   } else {
-    existing = reports.find(function (row) { return String(row.ShopID) === String(data.shopId) && normalizeDate(row.Date) === date; });
+    existing = reports.find(function (row) {
+      return String(row.ShopID) === String(data.shopId) &&
+        normalizeDate(row.Date) === date &&
+        String(row.EmployeeID) === String(data.employeeId);
+    });
+    if (existing && (existing.Status === "Submitted" || existing.Status === "Approved")) {
+      return { success: false, error: "Already submitted for this date. Ask admin to reopen if correction needed." };
+    }
   }
 
   if (existing && existing.Status === "Approved") {
@@ -1228,6 +1284,9 @@ function handleGetTodayCollection(data) {
 }
 
 function handleSubmitDailyCollection(data) {
+  const resolvedDate = resolveSubmissionDate(data);
+  if (resolvedDate.error) return { success: false, error: resolvedDate.error };
+  data.date = resolvedDate.date;
   if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
   if (!data.signature) return { success: false, error: "Signature confirmation is required before submitting collection." };
   const user = getObjectsCached(SHEETS.Users.name, 300).find(function (row) { return String(row.UserID) === String(data.employeeId); });
@@ -1235,6 +1294,12 @@ function handleSubmitDailyCollection(data) {
   if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return { success: false, error: "Employee can submit collection only for assigned shop." };
 
   const date = normalizeDate(data.date);
+  const existingCollection = getObjects(SHEETS.Collections.name).find(function (row) {
+    return String(row.ShopID) === String(data.shopId) && normalizeDate(row.Date) === date;
+  });
+  if (existingCollection && (existingCollection.Status === "Submitted" || existingCollection.Status === "Approved")) {
+    return { success: false, error: "Collection already submitted for this date. Ask admin to reopen if correction needed." };
+  }
   let base = upsertCollection(data.shopId, date, data.reportId || "", data.employeeId, data.employeeName || getEmployeeName(data.employeeId));
   const depositCash = toNumber(data.depositCash);
   const depositLIPA = toNumber(data.depositLIPA);

@@ -3,9 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Download, RefreshCw, ShoppingBag, Boxes, WalletCards, ClipboardList } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
+import DateRangeFilter from "../../components/common/DateRangeFilter";
 import type { CollectionEntry, DailySalesEntry, DailyStockEntry, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
 import { formatDateForDisplay, getLocalDateInputValue } from "../../utils/date";
+import { exportSectionsToPdf } from "../../utils/exportPdf";
+import { buildReportFilename } from "../../utils/reportTransforms";
 import { getSessionUser } from "../../utils/session";
 
 export const MyData: React.FC = () => {
@@ -111,28 +114,51 @@ export const MyData: React.FC = () => {
     XLSX.writeFile(wb, `MyData_${startDate}_to_${endDate}.xlsx`);
   };
 
+  const exportPdf = () => {
+    exportSectionsToPdf({
+      title: "My Submitted Data",
+      filename: buildReportFilename("My_Submitted_Data", startDate, endDate),
+      startDate,
+      endDate,
+      generatedBy: user?.name,
+      sections: [
+        {
+          title: "Daily Sales",
+          headers: ["Date", "Product", "Qty", "Type", "Amount"],
+          rows: sales.map((row) => [formatDateForDisplay(row.Date), row.ProductName, row.Quantity, row.SaleType, formatCurrency(row.TotalAmount)])
+        },
+        {
+          title: "Stock Closing",
+          headers: ["Date", "Product", "Opening", "Sales", "Actual", "Mismatch"],
+          rows: stocks.map((row) => [formatDateForDisplay(row.Date), row.ProductName, row.OpeningStock, row.Sales, row.ActualClosing, row.Mismatch])
+        },
+        {
+          title: "Collection",
+          headers: ["Date", "Cash", "Credit", "Deposit", "Variance", "Status"],
+          rows: collections.map((row) => [formatDateForDisplay(row.Date), formatCurrency(row.CashSales), formatCurrency(row.CreditSales), formatCurrency(row.DepositCash), formatCurrency(row.Variance), row.Status])
+        },
+        {
+          title: "MTN",
+          headers: ["MTN", "Date", "From", "To", "Item", "Qty"],
+          rows: mtns.flatMap((mtn) => mtn.items.map((item) => [mtn.mtnNo, formatDateForDisplay(mtn.mtnDate), mtn.from, mtn.to, item.itemName, item.quantity]))
+        }
+      ]
+    });
+  };
+
   return (
     <div className="mx-auto max-w-lg space-y-5 px-3 py-4 pb-28 sm:max-w-5xl sm:px-6 sm:py-6">
       <div className="flex items-center gap-3">
         <button onClick={() => navigate("/employee/dashboard")} className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-secondary"><ArrowLeft className="h-4 w-4" /></button>
         <div>
           <h1 className="text-xl font-black">My Submitted Data</h1>
-          <p className="text-xs text-muted-foreground">View all your submissions and download as Excel</p>
+          <p className="text-xs text-muted-foreground">View all your submissions and download as Excel or PDF</p>
         </div>
       </div>
 
       {/* Date Filter */}
       <div className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">From</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">To</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-sm font-bold outline-none focus:ring-2 focus:ring-ring" />
-          </div>
-        </div>
+        <DateRangeFilter startDate={startDate} endDate={endDate} onStartDateChange={setStartDate} onEndDateChange={setEndDate} compact />
         <div className="flex gap-3">
           <button onClick={loadData} disabled={loading} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-bold text-primary-foreground disabled:opacity-50 active:scale-[0.97]">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Load
@@ -140,6 +166,11 @@ export const MyData: React.FC = () => {
           {loaded && (sales.length > 0 || stocks.length > 0 || collections.length > 0 || mtns.length > 0) && (
             <button onClick={exportExcel} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-bold active:bg-secondary">
               <Download className="h-4 w-4" /> Excel
+            </button>
+          )}
+          {loaded && (sales.length > 0 || stocks.length > 0 || collections.length > 0 || mtns.length > 0) && (
+            <button onClick={exportPdf} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-bold text-primary-foreground active:bg-primary/90">
+              <Download className="h-4 w-4" /> PDF
             </button>
           )}
         </div>

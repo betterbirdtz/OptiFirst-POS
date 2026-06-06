@@ -66,6 +66,7 @@ export const CollectionEntry: React.FC = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [salesLoaded, setSalesLoaded] = useState(false);
+  const [dateManuallySelected, setDateManuallySelected] = useState(false);
 
   const activeShops = shops.filter((s) => s.Status === "Active");
   const allowedShops = user?.shopId ? activeShops.filter((s) => s.ShopID === user.shopId) : activeShops;
@@ -89,6 +90,13 @@ export const CollectionEntry: React.FC = () => {
     return w;
   }, [bankDiff, collection.dateOfDeposit, collection.depositInBank, collection.efdZReport, collection.remarks, collection.signatureConfirmed, salesVsEfd, variance]);
 
+  const isLockedStatus = (status?: string) => status === "Submitted" || status === "Approved";
+
+  const getSubmitDate = () => {
+    const today = getLocalDateInputValue();
+    return dateManuallySelected && date < today ? date : today;
+  };
+
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
     if (user.role !== "Employee") { navigate("/admin/dashboard"); return; }
@@ -108,12 +116,14 @@ export const CollectionEntry: React.FC = () => {
 
   const loadSalesData = async () => {
     if (!shopId || !date) return;
+    const loadDate = getSubmitDate();
+    setDate(loadDate);
     setLoadingSales(true); setError(""); setSalesLoaded(false);
     try {
       const [salesRes, collRes, reportRes] = await Promise.all([
-        appsScriptClient.getDailySalesReport({ shopId, startDate: date, endDate: date }),
-        appsScriptClient.getTodayCollection({ shopId, date, reportId: undefined }),
-        appsScriptClient.getTodayReport(user!.employeeId, shopId, date)
+        appsScriptClient.getDailySalesReport({ shopId, startDate: loadDate, endDate: loadDate }),
+        appsScriptClient.getTodayCollection({ shopId, date: loadDate, reportId: undefined }),
+        appsScriptClient.getTodayReport(user!.employeeId, shopId, loadDate)
       ]);
 
       if (reportRes.report?.ReportID) setReportId(reportRes.report.ReportID);
@@ -126,6 +136,10 @@ export const CollectionEntry: React.FC = () => {
       setTotalSales(cash + credit);
 
       const coll = collRes.collection;
+      if (coll && isLockedStatus(coll.Status)) {
+        setError("Collection already submitted for this date. Ask admin to reopen if correction needed.");
+        return;
+      }
       if (coll) {
         setCollection({
           depositCash: Number(coll.DepositCash || 0),
@@ -150,13 +164,22 @@ export const CollectionEntry: React.FC = () => {
 
     setSubmitting(true); setError("");
     try {
+      const today = getLocalDateInputValue();
+      const submitDate = getSubmitDate();
+      const existing = await appsScriptClient.getTodayCollection({ shopId: selectedShop.ShopID, date: submitDate, reportId });
+      if (existing.collection && isLockedStatus(existing.collection.Status)) {
+        setError("Collection already submitted for this date. Ask admin to reopen if correction needed.");
+        return;
+      }
+      const dateIntent = submitDate < today ? "manual-backdate" : "today";
       const res = await appsScriptClient.submitDailyCollection({
         reportId,
         shopId: selectedShop.ShopID,
         shopName: selectedShop.ShopName,
         employeeId: user.employeeId,
         employeeName: user.name,
-        date,
+        date: submitDate,
+        dateIntent,
         depositCash: collection.depositCash,
         depositLIPA: collection.depositLIPA,
         depositInBank: collection.depositInBank,
@@ -212,7 +235,7 @@ export const CollectionEntry: React.FC = () => {
             <label className="mb-1.5 block text-sm font-bold">Date</label>
             <div className="relative">
               <Calendar className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-              <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+              <input type="date" value={date} max={getLocalDateInputValue()} onChange={(e) => { setDate(e.target.value); setDateManuallySelected(true); }} className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
             </div>
           </div>
           <button type="button" onClick={loadSalesData} disabled={!shopId || !date || loadingSales} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
