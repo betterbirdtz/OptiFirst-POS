@@ -262,40 +262,15 @@ function ensureHeaders(sheet, headers) {
 }
 
 function seedShops() {
-  const sheet = getSheet(SHEETS.Shops.name);
-  if (sheet.getLastRow() > 1) return;
-  const now = nowIso();
-  appendRows(SHEETS.Shops.name, [
-    ["SHOP001", "Kisutu", "Kisutu", "Kisutu Incharge", "+255700000001", "Active", now],
-    ["SHOP002", "Kigamboni", "Kigamboni", "Kigamboni Incharge", "+255700000002", "Active", now],
-    ["SHOP003", "Utumbo", "Utumbo", "Utumbo Incharge", "+255700000003", "Active", now]
-  ]);
+  // No seeding - using real data from sheet
 }
 
 function seedUsers() {
-  const sheet = getSheet(SHEETS.Users.name);
-  if (sheet.getLastRow() > 1) return;
-  const now = nowIso();
-  appendRows(SHEETS.Users.name, [
-    ["USR001", "Admin User", "+255700000000", "1234", "Admin", "", "Active", now],
-    ["USR002", "Kisutu Employee", "+255700000101", "1111", "Employee", "SHOP001", "Active", now],
-    ["USR003", "Kigamboni Employee", "+255700000102", "2222", "Employee", "SHOP002", "Active", now],
-    ["USR004", "Utumbo Employee", "+255700000103", "3333", "Employee", "SHOP003", "Active", now]
-  ]);
+  // No seeding - using real data from sheet
 }
 
 function seedProducts() {
-  const sheet = getSheet(SHEETS.Products.name);
-  if (sheet.getLastRow() > 1) return;
-  const now = nowIso();
-  appendRows(SHEETS.Products.name, [
-    ["PROD001", "Live Chicken", "Chicken", "KG", 7500, "Yes", now],
-    ["PROD002", "Dressed Chicken", "Chicken", "KG", 9500, "Yes", now],
-    ["PROD003", "Broiler Chicken", "Chicken", "Bird", 11000, "Yes", now],
-    ["PROD004", "Chicken Parts", "Chicken", "KG", 8500, "Yes", now],
-    ["PROD005", "Egg Tray", "Eggs", "Tray", 9000, "Yes", now],
-    ["PROD006", "Loose Eggs", "Eggs", "Piece", 350, "Yes", now]
-  ]);
+  // No seeding - using real data from sheet
 }
 
 function ensureConfiguredSheets() {
@@ -489,7 +464,7 @@ function findUser(userId) {
 }
 
 function nowIso() {
-  return new Date().toISOString();
+  return Utilities.formatDate(new Date(), "Africa/Dar_es_Salaam", "yyyy-MM-dd'T'HH:mm:ss");
 }
 
 function makeId(prefix) {
@@ -499,7 +474,7 @@ function makeId(prefix) {
 function normalizeDate(value) {
   if (!value) return "";
   if (Object.prototype.toString.call(value) === "[object Date]") {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
+    return Utilities.formatDate(value, "Africa/Dar_es_Salaam", "yyyy-MM-dd");
   }
   return String(value).split("T")[0];
 }
@@ -514,8 +489,8 @@ function roundNumber(value) {
 }
 
 function dayName(dateStr) {
-  const date = new Date(normalizeDate(dateStr) + "T00:00:00");
-  return Utilities.formatDate(date, Session.getScriptTimeZone(), "EEEE");
+  const date = new Date(normalizeDate(dateStr) + "T12:00:00");
+  return Utilities.formatDate(date, "Africa/Dar_es_Salaam", "EEEE");
 }
 
 function inDateRange(rowDate, startDate, endDate) {
