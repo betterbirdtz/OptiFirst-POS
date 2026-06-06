@@ -210,9 +210,11 @@ export const DailySalesEntry: React.FC = () => {
     if (currentSalesEntries.length === 0) { setError("Add at least one item."); setConfirmOpen(false); return; }
     const missing = currentSalesEntries.find((s) => s.saleType === "Credit" && !s.customerName?.trim());
     if (missing) { setError(`Customer name required for ${missing.productName}.`); setConfirmOpen(false); return; }
+    // Use fresh today's date at submit time if user hasn't backdated
+    const submitDate = date >= getLocalDateInputValue() ? getLocalDateInputValue() : date;
     setSubmitting(true); setError("");
     try {
-      const res = await appsScriptClient.submitDailySales({ reportId, shopId: selectedShop.ShopID, shopName: selectedShop.ShopName, employeeId: user.employeeId, employeeName: user.name, date, salesEntries: currentSalesEntries, stockEntries: [] });
+      const res = await appsScriptClient.submitDailySales({ reportId, shopId: selectedShop.ShopID, shopName: selectedShop.ShopName, employeeId: user.employeeId, employeeName: user.name, date: submitDate, salesEntries: currentSalesEntries, stockEntries: [] });
       if (res.success) { localStorage.removeItem("draft_sales"); setReportId(res.reportId); setConfirmOpen(false); setSuccess(true); }
       else { setError(res.error || "Submission failed."); setConfirmOpen(false); }
     } catch { setError("Network error. Check connection and try again."); setConfirmOpen(false); }

@@ -856,6 +856,9 @@ function handleGetTodayReport(data) {
 }
 
 function handleSubmitReport(data, mode) {
+  var todayTZ = normalizeDate(new Date());
+  // If client sends a date in the future or no date, use today
+  if (!data.date || normalizeDate(data.date) > todayTZ) data.date = todayTZ;
   const validation = validateSubmission(data, mode !== "stock", mode !== "sales");
   if (validation) return { success: false, error: validation };
 

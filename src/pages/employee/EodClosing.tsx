@@ -238,13 +238,15 @@ export const EodClosing: React.FC = () => {
     setSubmitting(true);
     setError("");
     try {
+      // Use fresh today's date at submit time if user hasn't backdated
+      const submitDate = date >= getLocalDateInputValue() ? getLocalDateInputValue() : date;
       const stockResponse = await appsScriptClient.submitDailyStock({
         reportId,
         shopId: selectedShop.ShopID,
         shopName: selectedShop.ShopName,
         employeeId: user.employeeId,
         employeeName: user.name,
-        date,
+        date: submitDate,
         salesEntries: [],
         stockEntries
       });
