@@ -125,9 +125,10 @@ export const DailySalesEntry: React.FC = () => {
       const parsed = JSON.parse(draft);
       if (parsed.employeeId === user?.employeeId) {
         if (parsed.shopId) setShopId(parsed.shopId);
-        if (parsed.date) setDate(parsed.date);
+        // Only restore date if it matches today (don't carry over yesterday's date)
+        const today = getLocalDateInputValue();
+        if (parsed.date && parsed.date === today) setDate(parsed.date);
         if (parsed.salesEntries) setSalesEntries(parsed.salesEntries);
-        if (parsed.mode) { /* legacy */ }
       }
     } catch {
       localStorage.removeItem("draft_sales");

@@ -1,18 +1,15 @@
 const TZ = "Africa/Dar_es_Salaam";
 
-function getNowTZ(): Date {
-  // Get current time in Tanzania timezone
-  const now = new Date();
-  const tzString = now.toLocaleString("en-US", { timeZone: TZ });
-  return new Date(tzString);
-}
-
 export function getLocalDateInputValue(date?: Date): string {
-  const d = date || getNowTZ();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  if (date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  // Use Intl to get today's date parts in Tanzania timezone directly
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+  return formatter.format(new Date()); // en-CA gives yyyy-MM-dd format
 }
 
 export function normalizeSheetDate(value: string | Date | undefined): string {
@@ -56,10 +53,12 @@ export function getDateRangeLabel(startDate?: string, endDate?: string): string 
 }
 
 export function getMonthInputValue(date?: Date): string {
-  const d = date || getNowTZ();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
+  if (date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    return `${year}-${month}`;
+  }
+  return getLocalDateInputValue().slice(0, 7);
 }
 
 export function getMonthDateRange(month: string): { startDate: string; endDate: string } {
@@ -81,7 +80,6 @@ export function getDayName(value: string): string {
 }
 
 export function getNowIsoTZ(): string {
-  // Returns ISO string in Tanzania time for storing timestamps
-  const now = getNowTZ();
-  return now.toISOString();
+  const now = new Date();
+  return now.toLocaleString("sv-SE", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(" ", "T");
 }
