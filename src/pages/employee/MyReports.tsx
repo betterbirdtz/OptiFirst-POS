@@ -58,32 +58,13 @@ export const MyReports: React.FC = () => {
   }, [user, startDate, endDate]);
 
   const handleEditReopened = async (report: DailySummaryEntry) => {
-    if (!user) return;
-    try {
-      const response = await appsScriptClient.getReportsByDate(report.Date, report.Date, user.employeeId);
-      if (response.success) {
-        const reportSales = (response.sales || []).filter((s: DailySalesEntry) => s.ReportID === report.ReportID);
-        navigate("/employee/daily-sales", {
-          state: {
-            resubmitReport: {
-              reportId: report.ReportID,
-              shopId: report.ShopID,
-              date: String(report.Date).split("T")[0],
-              salesEntries: reportSales.map((s) => ({
-                productId: s.ProductID,
-                productName: s.ProductName,
-                uom: s.UOM,
-                quantity: Number(s.Quantity),
-                rate: Number(s.Rate),
-                saleType: s.SaleType,
-                customerName: s.CustomerName || undefined,
-                efdNumber: s.EFDNumber || undefined
-              }))
-            }
-          }
-        });
+    navigate("/employee/edit-report", {
+      state: {
+        reportId: report.ReportID,
+        shopId: report.ShopID,
+        date: String(report.Date).split("T")[0]
       }
-    } catch { /* */ }
+    });
   };
 
   const exportExcel = () => {
@@ -137,7 +118,7 @@ export const MyReports: React.FC = () => {
       {reopenedReports.length > 0 && (
         <section className="rounded-xl border border-orange-200 bg-orange-50 p-4 space-y-3">
           <h2 className="text-sm font-black text-orange-800">⚠ Reopened by Admin — Edit Required ({reopenedReports.length})</h2>
-          <p className="text-[10px] text-orange-700">Admin has reopened these reports. Please correct and resubmit.</p>
+          <p className="text-[10px] text-orange-700">Admin has reopened these reports. Tap Edit to correct specific items.</p>
           {reopenedReports.map((report) => (
             <div key={report.ReportID} className="flex items-center justify-between rounded-lg border border-orange-200 bg-white p-3">
               <div>
@@ -148,7 +129,7 @@ export const MyReports: React.FC = () => {
                 onClick={() => handleEditReopened(report)}
                 className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white active:bg-orange-700"
               >
-                <Edit2 className="h-3.5 w-3.5" /> Edit
+                <Edit2 className="h-3.5 w-3.5" /> Edit Items
               </button>
             </div>
           ))}

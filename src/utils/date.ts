@@ -1,7 +1,17 @@
-export function getLocalDateInputValue(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+const TZ = "Africa/Dar_es_Salaam";
+
+function getNowTZ(): Date {
+  // Get current time in Tanzania timezone
+  const now = new Date();
+  const tzString = now.toLocaleString("en-US", { timeZone: TZ });
+  return new Date(tzString);
+}
+
+export function getLocalDateInputValue(date?: Date): string {
+  const d = date || getNowTZ();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -14,10 +24,11 @@ export function normalizeSheetDate(value: string | Date | undefined): string {
 export function formatDateForDisplay(value: string | Date | undefined): string {
   const normalized = normalizeSheetDate(value);
   if (!normalized) return "-";
-  return new Date(`${normalized}T00:00:00`).toLocaleDateString("en-TZ", {
+  return new Date(`${normalized}T12:00:00`).toLocaleDateString("en-TZ", {
     day: "2-digit",
     month: "short",
-    year: "numeric"
+    year: "numeric",
+    timeZone: TZ
   });
 }
 
@@ -30,7 +41,8 @@ export function formatDateTimeForDisplay(value: string | Date | undefined): stri
     month: "short",
     year: "numeric",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    timeZone: TZ
   });
 }
 
@@ -43,9 +55,10 @@ export function getDateRangeLabel(startDate?: string, endDate?: string): string 
   return "All dates";
 }
 
-export function getMonthInputValue(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
+export function getMonthInputValue(date?: Date): string {
+  const d = date || getNowTZ();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
 }
 
@@ -64,5 +77,11 @@ export function getMonthDateRange(month: string): { startDate: string; endDate: 
 export function getDayName(value: string): string {
   const normalized = normalizeSheetDate(value);
   if (!normalized) return "";
-  return new Date(`${normalized}T00:00:00`).toLocaleDateString("en-TZ", { weekday: "long" });
+  return new Date(`${normalized}T12:00:00`).toLocaleDateString("en-TZ", { weekday: "long", timeZone: TZ });
+}
+
+export function getNowIsoTZ(): string {
+  // Returns ISO string in Tanzania time for storing timestamps
+  const now = getNowTZ();
+  return now.toISOString();
 }

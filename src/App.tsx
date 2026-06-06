@@ -21,6 +21,7 @@ import DailySalesEntry from "./pages/employee/DailySalesEntry";
 import EodClosing from "./pages/employee/EodClosing";
 import CollectionEntry from "./pages/employee/CollectionEntry";
 import MaterialTransferNote from "./pages/employee/MaterialTransferNote";
+import EditReport from "./pages/employee/EditReport";
 
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -53,6 +54,7 @@ export const App: React.FC = () => {
           <Route path="/employee/collection" element={<ProtectedRoute allowedRoles={["Employee"]}><CollectionEntry /></ProtectedRoute>} />
           <Route path="/employee/mtn" element={<ProtectedRoute allowedRoles={["Employee"]}><MaterialTransferNote /></ProtectedRoute>} />
           <Route path="/employee/my-reports" element={<ProtectedRoute allowedRoles={["Employee"]}><MyReports /></ProtectedRoute>} />
+          <Route path="/employee/edit-report" element={<ProtectedRoute allowedRoles={["Employee"]}><EditReport /></ProtectedRoute>} />
 
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={["Admin"]}><AdminDashboard /></ProtectedRoute>} />
