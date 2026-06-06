@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PlusCircle, FileText, ClipboardList, AlertTriangle, ArrowRight, LogOut, WalletCards, Boxes, Pencil } from "lucide-react";
+import { PlusCircle, FileText, ClipboardList, AlertTriangle, ArrowRight, LogOut, WalletCards, Boxes, Pencil, Edit2 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { UserSession, DailySummaryEntry, CollectionEntry } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
@@ -16,6 +16,7 @@ export const EmployeeDashboard: React.FC = () => {
   const [todayCollection, setTodayCollection] = useState<CollectionEntry | null>(null);
   const [todayReport, setTodayReport] = useState<DailySummaryEntry | null>(null);
   const [todayMtnCount, setTodayMtnCount] = useState(0);
+  const [reopenedReports, setReopenedReports] = useState<DailySummaryEntry[]>([]);
   const [user] = useState<UserSession | null>(() => getSessionUser());
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export const EmployeeDashboard: React.FC = () => {
         if (response.success && response.reports) {
           const sorted = response.reports.sort((a: DailySummaryEntry, b: DailySummaryEntry) => new Date(b.SubmittedAt).getTime() - new Date(a.SubmittedAt).getTime());
           setReports(sorted.slice(0, 5));
+          setReopenedReports(sorted.filter((r) => r.Status === "Reopened"));
           const today = getLocalDateInputValue();
           const todayRep = sorted.find((r) => r.Date === today || r.Date.startsWith(today));
           if (todayRep) setTodayReport(todayRep);
@@ -94,6 +96,24 @@ export const EmployeeDashboard: React.FC = () => {
           </div>
           <ArrowRight className="h-4 w-4 text-orange-600" />
         </Link>
+      )}
+
+      {/* Reopened Reports - prominent on dashboard */}
+      {reopenedReports.length > 0 && (
+        <div className="rounded-xl border-2 border-orange-300 bg-orange-50 p-3 space-y-2">
+          <p className="text-xs font-black text-orange-800">⚠ Admin Reopened ({reopenedReports.length}) — Edit Required</p>
+          {reopenedReports.map((r) => (
+            <div key={r.ReportID} className="flex items-center justify-between rounded-lg bg-white border border-orange-200 p-2.5">
+              <div>
+                <p className="text-xs font-bold">{formatDateForDisplay(r.Date)}</p>
+                <p className="text-[10px] text-muted-foreground">{formatCurrency(r.TotalSales)}</p>
+              </div>
+              <button onClick={() => navigate("/employee/edit-report", { state: { reportId: r.ReportID, shopId: r.ShopID, date: String(r.Date).split("T")[0] } })} className="flex items-center gap-1 rounded-lg bg-orange-600 px-3 py-2 text-[10px] font-bold text-white active:bg-orange-700">
+                <Edit2 className="h-3 w-3" /> Edit
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Quick Actions - 2x2 grid, large touch targets */}
