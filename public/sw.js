@@ -1,4 +1,4 @@
-const CACHE_NAME = "optifirst-v1";
+const CACHE_NAME = "optifirst-v2";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -47,17 +47,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For static assets (JS/CSS/images): cache first, fallback to network
+  // For static assets: network first (Vite uses hashed filenames so new deploys = new URLs)
   if (url.pathname.startsWith("/assets/") || url.pathname.endsWith(".svg") || url.pathname.endsWith(".png") || url.pathname.endsWith(".webmanifest")) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
+      fetch(event.request)
+        .then((response) => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
-        });
-      })
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
