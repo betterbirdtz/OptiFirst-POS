@@ -93,7 +93,6 @@ export const CollectionEntry: React.FC = () => {
     return w;
   }, [bankDiff, collection.dateOfDeposit, collection.depositInBank, collection.efdZReport, collection.remarks, collection.signatureConfirmed, salesVsEfd, variance]);
 
-  const isLockedStatus = (status?: string) => status === "Submitted" || status === "Approved";
 
   const getSubmitDate = () => {
     const today = getLocalDateInputValue();
@@ -139,8 +138,8 @@ export const CollectionEntry: React.FC = () => {
       setTotalSales(cash + credit);
 
       const coll = collRes.collection;
-      if (coll && isLockedStatus(coll.Status)) {
-        setError("Collection already submitted for this date. Ask admin to reopen if correction needed.");
+      if (coll && coll.Status === "Approved") {
+        setError("Collection approved. Ask admin to reopen if correction needed.");
         return;
       }
       if (coll) {
@@ -196,6 +195,24 @@ export const CollectionEntry: React.FC = () => {
     }
   };
 
+  const handleSelfReopen = async () => {
+    if (!collectionId || !user) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await appsScriptClient.reopenCollection(collectionId, user.userId, "Self-reopened by employee", user.role);
+      if (res.success) {
+        setCollectionStatus("Reopened");
+      } else {
+        setError(res.error || "Failed to reopen collection.");
+      }
+    } catch {
+      setError("Network error reopening collection.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const submitCollection = async () => {
     if (!user || !selectedShop) return;
     if (!collection.signatureConfirmed) { setError("Please confirm the collection details."); return; }
@@ -206,8 +223,12 @@ export const CollectionEntry: React.FC = () => {
       const today = getLocalDateInputValue();
       const submitDate = getSubmitDate();
       const existing = await appsScriptClient.getTodayCollection({ shopId: selectedShop.ShopID, date: submitDate, reportId });
-      if (existing.collection && isLockedStatus(existing.collection.Status)) {
-        setError("Collection already submitted for this date. Ask admin to reopen if correction needed.");
+      if (existing.collection && existing.collection.Status === "Approved") {
+        setError("Collection approved. Ask admin to reopen if correction needed.");
+        return;
+      }
+      if (existing.collection && existing.collection.Status === "Submitted" && collectionStatus !== "Reopened") {
+        setError("Collection already submitted for this date. Reopen it to make corrections.");
         return;
       }
       const dateIntent = submitDate < today ? "manual-backdate" : "today";
@@ -257,6 +278,23 @@ export const CollectionEntry: React.FC = () => {
       </div>
 
       {error && <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"><AlertCircle className="h-5 w-5 flex-shrink-0" /><span>{error}</span></div>}
+
+      {collectionStatus === "Submitted" && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800 shadow-sm">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-600" />
+            <span>Already submitted for this date.</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleSelfReopen}
+            disabled={submitting}
+            className="mt-2 w-full rounded-lg bg-amber-600 py-2.5 text-xs font-bold text-white hover:bg-amber-700 active:scale-[0.98] transition-all"
+          >
+            {submitting ? "Reopening..." : "Reopen & Edit"}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">Loading...</div>
@@ -334,17 +372,17 @@ export const CollectionEntry: React.FC = () => {
           <section className="space-y-4 rounded-lg border border-border bg-card p-4 shadow-sm">
             <h3 className="flex items-center gap-2 text-sm font-black"><Banknote className="h-4 w-4 text-primary" />Enter Collection Details</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <MoneyField label="Cash Sale Deposits - Cash" value={collection.depositCash} onChange={(v) => setCollection((c) => ({ ...c, depositCash: v }))} icon={<Banknote className="h-4 w-4" />} />
-              <MoneyField label="Cash Sale Deposits - LIPA" value={collection.depositLIPA} onChange={(v) => setCollection((c) => ({ ...c, depositLIPA: v }))} icon={<CreditCard className="h-4 w-4" />} />
-              <MoneyField label="Deposit in Bank" value={collection.depositInBank} onChange={(v) => setCollection((c) => ({ ...c, depositInBank: v }))} icon={<Landmark className="h-4 w-4" />} />
+              <MoneyField label="Cash Sale Deposits - Cash" value={collection.depositCash} onChange={(v) => setCollection((c) => ({ ...c, depositCash: v }))} icon={<Banknote className="h-4 w-4" />} disabled={collectionStatus === "Submitted"} />
+              <MoneyField label="Cash Sale Deposits - LIPA" value={collection.depositLIPA} onChange={(v) => setCollection((c) => ({ ...c, depositLIPA: v }))} icon={<CreditCard className="h-4 w-4" />} disabled={collectionStatus === "Submitted"} />
+              <MoneyField label="Deposit in Bank" value={collection.depositInBank} onChange={(v) => setCollection((c) => ({ ...c, depositInBank: v }))} icon={<Landmark className="h-4 w-4" />} disabled={collectionStatus === "Submitted"} />
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Date of Deposit</label>
-                <input type="date" value={collection.dateOfDeposit} onChange={(e) => setCollection((c) => ({ ...c, dateOfDeposit: e.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+                <input type="date" value={collection.dateOfDeposit} onChange={(e) => setCollection((c) => ({ ...c, dateOfDeposit: e.target.value }))} disabled={collectionStatus === "Submitted"} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
               </div>
-              <MoneyField label="EFD Z Report" value={collection.efdZReport} onChange={(v) => setCollection((c) => ({ ...c, efdZReport: v }))} icon={<ReceiptText className="h-4 w-4" />} />
+              <MoneyField label="EFD Z Report" value={collection.efdZReport} onChange={(v) => setCollection((c) => ({ ...c, efdZReport: v }))} icon={<ReceiptText className="h-4 w-4" />} disabled={collectionStatus === "Submitted"} />
               <div>
                 <label className="mb-1.5 block text-sm font-bold">Name</label>
-                <input value={collection.name} onChange={(e) => setCollection((c) => ({ ...c, name: e.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" placeholder="Employee name" />
+                <input value={collection.name} onChange={(e) => setCollection((c) => ({ ...c, name: e.target.value }))} disabled={collectionStatus === "Submitted"} className="w-full rounded-lg border border-input bg-background px-3 py-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" placeholder="Employee name" />
               </div>
             </div>
           </section>
@@ -368,12 +406,12 @@ export const CollectionEntry: React.FC = () => {
               <Mini label="Status" value={allMatched ? "Matched" : "Check"} danger={!allMatched} />
             </div>
             <label className="flex items-start gap-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm font-bold">
-              <input type="checkbox" checked={collection.signatureConfirmed} onChange={(e) => setCollection((c) => ({ ...c, signatureConfirmed: e.target.checked }))} className="mt-1 h-4 w-4" />
+              <input type="checkbox" checked={collection.signatureConfirmed} onChange={(e) => setCollection((c) => ({ ...c, signatureConfirmed: e.target.checked }))} disabled={collectionStatus === "Submitted"} className="mt-1 h-4 w-4 disabled:opacity-60" />
               <span>I confirm today's collection details are correct</span>
             </label>
             <div>
               <label className="mb-1.5 block text-sm font-bold">Remarks {variance !== 0 ? "*" : ""}</label>
-              <textarea value={collection.remarks} onChange={(e) => setCollection((c) => ({ ...c, remarks: e.target.value }))} placeholder={variance !== 0 ? "Explain the variance" : "Optional"} className="min-h-20 w-full rounded-lg border border-input bg-background px-3 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring" />
+              <textarea value={collection.remarks} onChange={(e) => setCollection((c) => ({ ...c, remarks: e.target.value }))} disabled={collectionStatus === "Submitted"} placeholder={variance !== 0 ? "Explain the variance" : "Optional"} className="min-h-20 w-full rounded-lg border border-input bg-background px-3 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
             </div>
           </section>
 
@@ -385,9 +423,15 @@ export const CollectionEntry: React.FC = () => {
                 <Trash2 className="h-4 w-4" />Delete
               </button>
             )}
-            <button type="button" onClick={submitCollection} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
-              <Send className="h-4 w-4" />{submitting ? "Submitting..." : "Submit Collection"}
-            </button>
+            {collectionStatus !== "Submitted" ? (
+              <button type="button" onClick={submitCollection} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+                <Send className="h-4 w-4" />{submitting ? "Submitting..." : "Submit Collection"}
+              </button>
+            ) : (
+              <div className="flex-1 text-center py-3 text-xs font-black text-muted-foreground border border-dashed border-border rounded-lg bg-secondary/20 flex items-center justify-center">
+                Locked (Reopen to Edit)
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -395,12 +439,12 @@ export const CollectionEntry: React.FC = () => {
   );
 };
 
-const MoneyField: React.FC<{ label: string; value: number; icon: React.ReactNode; onChange: (v: number) => void }> = ({ label, value, icon, onChange }) => (
+const MoneyField: React.FC<{ label: string; value: number; icon: React.ReactNode; onChange: (v: number) => void; disabled?: boolean }> = ({ label, value, icon, onChange, disabled }) => (
   <div>
     <label className="mb-1.5 block text-sm font-bold">{label}</label>
     <div className="relative">
       <span className="absolute left-3 top-3.5 text-muted-foreground">{icon}</span>
-      <input type="number" min="0" step="0.01" inputMode="decimal" value={value || ""} onChange={(e) => onChange(Number(e.target.value || 0))} className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring" />
+      <input type="number" min="0" step="0.01" inputMode="decimal" value={value || ""} onChange={(e) => onChange(Number(e.target.value || 0))} disabled={disabled} className="w-full rounded-lg border border-input bg-background py-3 pl-10 pr-3 text-base font-bold outline-none focus:ring-2 focus:ring-ring disabled:opacity-60" />
     </div>
   </div>
 );

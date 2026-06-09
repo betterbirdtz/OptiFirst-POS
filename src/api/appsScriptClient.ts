@@ -721,6 +721,11 @@ function updateMockCollectionByAdmin(data: ApiData, status?: CollectionEntry["St
   );
   if (index === -1) return { success: false, error: "Collection row not found." };
   const row = collections[index];
+
+  if (status === "Reopened" && row.Status === "Approved" && data.role === "Employee") {
+    return { success: false, error: "Already approved — contact admin to reopen" };
+  }
+
   const next: CollectionEntry = {
     ...row,
     AdminNote: data.adminNote !== undefined ? String(data.adminNote) : row.AdminNote,
@@ -1702,7 +1707,7 @@ export const appsScriptClient = {
   }) => callApi("updateCollectionDeposit", payload),
   approveCollection: (collectionId: string, adminId: string, adminNote?: string) => callApi("approveCollection", { collectionId, adminId, adminNote }),
   rejectCollection: (collectionId: string, adminId: string, reason: string) => callApi("rejectCollection", { collectionId, adminId, reason }),
-  reopenCollection: (collectionId: string, adminId: string, adminNote?: string) => callApi("reopenCollection", { collectionId, adminId, adminNote }),
+  reopenCollection: (collectionId: string, adminId: string, adminNote?: string, role?: string) => callApi("reopenCollection", { collectionId, adminId, adminNote, role }),
   approveReport: (reportId: string, adminId: string) => callApi("approveReport", { reportId, adminId }),
   rejectReport: (reportId: string, adminId: string) => callApi("rejectReport", { reportId, adminId }),
   reopenReport: (reportId: string, adminId: string) => callApi("reopenReport", { reportId, adminId }),

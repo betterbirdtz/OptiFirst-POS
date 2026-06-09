@@ -1372,6 +1372,11 @@ function handleUpdateCollectionByAdmin(data) {
 function handleUpdateCollectionStatus(data, status) {
   const row = findCollection(data);
   if (!row) return { success: false, error: "Collection row not found." };
+  
+  if (status === "Reopened" && row.Status === "Approved" && data.role === "Employee") {
+    return { success: false, error: "Already approved — contact admin to reopen" };
+  }
+
   row.Status = status;
   row.AdminNote = data.reason || data.adminNote || row.AdminNote || "";
   row.ApprovedBy = status === "Approved" ? data.adminId || data.userId || "" : "";
