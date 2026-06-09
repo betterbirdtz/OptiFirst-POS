@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Eye, FileDown, FileSpreadsheet, RefreshCw, RotateCcw, Search, WalletCards, X } from "lucide-react";
+import { Check, Eye, FileDown, FileSpreadsheet, RefreshCw, RotateCcw, Search, Trash2, WalletCards, X } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { CollectionEntry, CollectionStatus, Shop, UserSession } from "../../types";
 import { formatCurrency } from "../../utils/calculations";
@@ -107,6 +107,25 @@ export const Collections: React.FC = () => {
     }
   };
 
+  const handleDeleteCollection = async (collectionId: string) => {
+    if (!window.confirm("Are you sure you want to delete this collection entry? This action cannot be undone.")) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await appsScriptClient.deleteCollection(collectionId);
+      if (!response.success) setError(response.error || "Collection delete failed.");
+      else {
+        setSelected(null);
+        await loadCollections();
+      }
+    } catch (saveError) {
+      console.error(saveError);
+      setError("Network error deleting collection.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleExcelExport = () => {
     exportCollectionsToExcel(collections, `Collections_${shopId || "All_Shops"}_${month || "Filtered"}`);
   };
@@ -148,9 +167,28 @@ export const Collections: React.FC = () => {
           <option value="">All Shops</option>
           {shops.map((shop) => <option key={shop.ShopID} value={shop.ShopID}>{shop.ShopName}</option>)}
         </select>
-        <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
-        <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
-        <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
+        <input type="month" value={month} onChange={(event) => {
+          const val = event.target.value;
+          setMonth(val);
+          if (val) {
+            setStartDate("");
+            setEndDate("");
+          }
+        }} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
+        <input type="date" value={startDate} onChange={(event) => {
+          const val = event.target.value;
+          setStartDate(val);
+          if (val) {
+            setMonth("");
+          }
+        }} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
+        <input type="date" value={endDate} onChange={(event) => {
+          const val = event.target.value;
+          setEndDate(val);
+          if (val) {
+            setMonth("");
+          }
+        }} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold" />
         <select value={status} onChange={(event) => setStatus(event.target.value)} className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-semibold">
           {statusOptions.map((item) => <option key={item || "All"} value={item}>{item || "All Statuses"}</option>)}
         </select>
@@ -264,6 +302,10 @@ export const Collections: React.FC = () => {
             </div>
 
             <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+              <button type="button" onClick={() => handleDeleteCollection(selected.CollectionID)} disabled={saving} className="mr-auto inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-50">
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
               <button type="button" onClick={() => saveSelected()} disabled={saving} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-bold disabled:opacity-50">
                 Save Admin Note
               </button>

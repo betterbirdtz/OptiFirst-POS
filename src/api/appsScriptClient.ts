@@ -1058,6 +1058,29 @@ function updateReportStatus(reportId: string, status: ReportStatus, adminId: str
   return { success: true };
 }
 
+function deleteMockCollection(collectionId: string): ApiResponse {
+  const collections = getCollections();
+  const next = collections.filter((row) => row.CollectionID !== collectionId);
+  if (next.length === collections.length) {
+    return { success: false, error: "Collection not found." };
+  }
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, next);
+  return { success: true };
+}
+
+function deleteMockReport(reportId: string): ApiResponse {
+  const reports = getReports();
+  const index = reports.findIndex((report) => report.ReportID === reportId);
+  if (index === -1) return { success: false, error: "Report not found." };
+
+  setStored<DailyReport>(STORAGE_KEYS.reports, reports.filter((row) => row.ReportID !== reportId));
+  setStored<DailySalesEntry>(STORAGE_KEYS.sales, getSales().filter((row) => row.ReportID !== reportId));
+  setStored<DailyStockEntry>(STORAGE_KEYS.stocks, getStocks().filter((row) => row.ReportID !== reportId));
+  setStored<CollectionEntry>(STORAGE_KEYS.collections, getCollections().filter((row) => row.ReportID !== reportId));
+
+  return { success: true };
+}
+
 function getShopPrices(shopId?: string): ShopPriceRow[] {
   return parseStored<ShopPriceRow>(STORAGE_KEYS.shopPrices, []).filter((row) => !shopId || row.ShopID === shopId);
 }
@@ -1418,6 +1441,12 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
     case "reopenReport":
       return updateReportStatus(String(data.reportId || ""), "Reopened", String(data.adminId || data.userId || ""));
 
+    case "deleteCollection":
+      return deleteMockCollection(String(data.collectionId || ""));
+
+    case "deleteReport":
+      return deleteMockReport(String(data.reportId || ""));
+
     case "getStockMismatchReport": {
       const rows = getStocks()
         .filter((row) => toNumber(row.Mismatch) !== 0)
@@ -1677,6 +1706,8 @@ export const appsScriptClient = {
   approveReport: (reportId: string, adminId: string) => callApi("approveReport", { reportId, adminId }),
   rejectReport: (reportId: string, adminId: string) => callApi("rejectReport", { reportId, adminId }),
   reopenReport: (reportId: string, adminId: string) => callApi("reopenReport", { reportId, adminId }),
+  deleteCollection: (collectionId: string) => callApi("deleteCollection", { collectionId }),
+  deleteReport: (reportId: string) => callApi("deleteReport", { reportId }),
   getStockMismatchReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getStockMismatchReport", filters),
   getCreditSalesReport: (filters: { shopId?: string; startDate?: string; endDate?: string }) => callApi("getCreditSalesReport", filters),
   getLiveWeight: () => callApi("getLiveWeight"),

@@ -243,6 +243,10 @@ function processAction(action, data) {
       return handleGetMTNsForShop(data);
     case "updateOpeningStock":
       return handleUpdateOpeningStock(data);
+    case "deleteCollection":
+      return handleDeleteCollection(data);
+    case "deleteReport":
+      return handleDeleteReport(data);
     default:
       return { success: false, error: "Unknown API action: " + action };
   }
@@ -1571,4 +1575,54 @@ function handleGetMTNsForShop(data) {
   var mtns = getObjects(SHEETS.MTN.name);
   if (shopId) mtns = mtns.filter(function(row) { return String(row.ToShopID) === shopId; });
   return { success: true, mtns: mtns };
+}
+
+function handleDeleteCollection(data) {
+  var collectionId = data.collectionId || "";
+  if (!collectionId) return { success: false, error: "Collection ID is required." };
+  
+  var existing = getObjects(SHEETS.Collections.name).find(function(row) {
+    return String(row.CollectionID) === String(collectionId);
+  });
+  if (!existing) return { success: false, error: "Collection not found." };
+  
+  deleteRowsWhere(SHEETS.Collections.name, function(row) {
+    return String(row.CollectionID) === String(collectionId);
+  });
+  
+  logAction(data.userId || data.employeeId || "ADMIN", "DELETE_COLLECTION", "Collection " + collectionId + " deleted.");
+  return { success: true };
+}
+
+function handleDeleteReport(data) {
+  var reportId = data.reportId || "";
+  if (!reportId) return { success: false, error: "Report ID is required." };
+  
+  var existing = getObjects(SHEETS.DailyReports.name).find(function(row) {
+    return String(row.ReportID) === String(reportId);
+  });
+  if (!existing) return { success: false, error: "Report not found." };
+  
+  // 1. Delete sales entries
+  deleteRowsWhere(SHEETS.DailySalesEntries.name, function(row) {
+    return String(row.ReportID) === String(reportId);
+  });
+  
+  // 2. Delete stock entries
+  deleteRowsWhere(SHEETS.DailyStockEntries.name, function(row) {
+    return String(row.ReportID) === String(reportId);
+  });
+  
+  // 3. Delete report row
+  deleteRowsWhere(SHEETS.DailyReports.name, function(row) {
+    return String(row.ReportID) === String(reportId);
+  });
+  
+  // 4. Delete collection row if it exists
+  deleteRowsWhere(SHEETS.Collections.name, function(row) {
+    return String(row.ReportID) === String(reportId);
+  });
+  
+  logAction(data.userId || data.employeeId || "ADMIN", "DELETE_REPORT", "Report " + reportId + " deleted.");
+  return { success: true };
 }

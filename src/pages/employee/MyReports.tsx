@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, Trash2, WalletCards } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
@@ -68,6 +68,24 @@ export const MyReports: React.FC = () => {
         date: String(report.Date).split("T")[0]
       }
     });
+  };
+
+  const handleDeleteReopenedReport = async (reportId: string) => {
+    if (!window.confirm("Are you sure you want to delete this report? This will remove all entered sales, stock entries, and collection details for this date, allowing you to start fresh. This cannot be undone.")) return;
+    setLoading(true);
+    try {
+      const response = await appsScriptClient.deleteReport(reportId);
+      if (response.success) {
+        await loadData();
+      } else {
+        setError(response.error || "Failed to delete report.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Network error deleting report.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const exportExcel = () => {
@@ -158,12 +176,20 @@ export const MyReports: React.FC = () => {
                 <p className="text-sm font-bold">{formatDateForDisplay(report.Date)}</p>
                 <p className="text-[10px] text-muted-foreground">Sales: {formatCurrency(report.TotalSales)} · Mismatch: {report.StockMismatch}</p>
               </div>
-              <button
-                onClick={() => handleEditReopened(report)}
-                className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white active:bg-orange-700"
-              >
-                <Edit2 className="h-3.5 w-3.5" /> Edit Items
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleDeleteReopenedReport(report.ReportID)}
+                  className="flex items-center gap-1.5 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive hover:text-white active:scale-95"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
+                </button>
+                <button
+                  onClick={() => handleEditReopened(report)}
+                  className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white active:bg-orange-700"
+                >
+                  <Edit2 className="h-3.5 w-3.5" /> Edit Items
+                </button>
+              </div>
             </div>
           ))}
         </section>

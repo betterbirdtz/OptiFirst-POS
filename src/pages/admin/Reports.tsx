@@ -11,6 +11,7 @@ import {
   Info,
   RefreshCw,
   ShoppingBag,
+  Trash2,
   X
 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
@@ -125,6 +126,25 @@ export const Reports: React.FC = () => {
     } catch (statusError) {
       console.error(statusError);
       setError("Network error updating report status.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!window.confirm("Are you sure you want to delete this daily report? This will delete all sales lines, stock lines, and the associated collection entry. This action cannot be undone.")) return;
+    setActionLoading(true);
+    try {
+      const response = await appsScriptClient.deleteReport(reportId);
+      if (response.success) {
+        setSelectedReport(null);
+        await loadReports();
+      } else {
+        setError(response.error || "Failed to delete report.");
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Network error deleting report.");
     } finally {
       setActionLoading(false);
     }
@@ -360,50 +380,63 @@ export const Reports: React.FC = () => {
               </div>
             </div>
 
-            {(selectedReport.Status === "Pending Approval" || selectedReport.Status === "Submitted") ? (
-              <div className="grid grid-cols-3 gap-2 border-t border-border pt-4">
+            <div className="border-t border-border pt-4">
+              <div className="flex items-center justify-between gap-3">
                 <button
-                  onClick={() => updateStatus(selectedReport.ReportID, "reject")}
+                  onClick={() => handleDeleteReport(selectedReport.ReportID)}
                   disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/10 py-3 text-xs font-bold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-50"
                 >
-                  <X className="h-4 w-4" />
-                  Reject
+                  <Trash2 className="h-4 w-4" />
+                  Delete Report
                 </button>
-                <button
-                  onClick={() => updateStatus(selectedReport.ReportID, "reopen")}
-                  disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-amber-500/10 py-3 text-xs font-bold text-amber-700 hover:bg-amber-500 hover:text-white disabled:opacity-50"
-                >
-                  <AlertTriangle className="h-4 w-4" />
-                  Reopen
-                </button>
-                <button
-                  onClick={() => updateStatus(selectedReport.ReportID, "approve")}
-                  disabled={actionLoading}
-                  className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-600 py-3 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50"
-                >
-                  <Check className="h-4 w-4" />
-                  Approve
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                <div className="flex items-center gap-2 rounded-xl bg-secondary/40 p-3 text-xs text-muted-foreground">
-                  <Info className="h-4 w-4 text-primary" />
-                  This report is currently {selectedReport.Status}.
-                </div>
-                {selectedReport.Status !== "Reopened" && (
-                  <button
-                    onClick={() => updateStatus(selectedReport.ReportID, "reopen")}
-                    disabled={actionLoading}
-                    className="rounded-xl border border-border px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-50"
-                  >
-                    Reopen
-                  </button>
+
+                {(selectedReport.Status === "Pending Approval" || selectedReport.Status === "Submitted") ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => updateStatus(selectedReport.ReportID, "reject")}
+                      disabled={actionLoading}
+                      className="inline-flex items-center justify-center gap-1 rounded-xl bg-destructive/10 px-3 py-2.5 text-xs font-bold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" />
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => updateStatus(selectedReport.ReportID, "reopen")}
+                      disabled={actionLoading}
+                      className="inline-flex items-center justify-center gap-1 rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-bold text-amber-700 hover:bg-amber-500 hover:text-white disabled:opacity-50"
+                    >
+                      <AlertTriangle className="h-4 w-4" />
+                      Reopen
+                    </button>
+                    <button
+                      onClick={() => updateStatus(selectedReport.ReportID, "approve")}
+                      disabled={actionLoading}
+                      className="inline-flex items-center justify-center gap-1 rounded-xl bg-green-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50"
+                    >
+                      <Check className="h-4 w-4" />
+                      Approve
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 rounded-xl bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                      <Info className="h-3.5 w-3.5 text-primary" />
+                      {selectedReport.Status}
+                    </div>
+                    {selectedReport.Status !== "Reopened" && (
+                      <button
+                        onClick={() => updateStatus(selectedReport.ReportID, "reopen")}
+                        disabled={actionLoading}
+                        className="rounded-xl border border-border px-3 py-2 text-xs font-bold hover:bg-secondary disabled:opacity-50"
+                      >
+                        Reopen
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </div>
           </div>
         )}
       </Modal>
