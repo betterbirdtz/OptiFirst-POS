@@ -1522,6 +1522,19 @@ async function callMockApi(action: string, data: ApiData = {}): Promise<ApiRespo
       return { success: true };
     }
 
+    case "updateOpeningStockBatch": {
+      const batchShopId = String(data.shopId || "");
+      if (!batchShopId) return { success: false, error: "Shop is required." };
+      const batchItems = Array.isArray(data.items) ? data.items : [];
+      let batchRows = parseStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, []);
+      batchItems.forEach((item: any) => {
+        batchRows = batchRows.filter((row) => !(row.ShopID === batchShopId && row.ProductID === item.productId));
+        batchRows.push({ ShopID: batchShopId, ProductID: item.productId, OpeningStock: toNumber(item.openingStock), UpdatedAt: nowIso() });
+      });
+      setStored<OpeningStockOverrideRow>(STORAGE_KEYS.openingStock, batchRows);
+      return { success: true };
+    }
+
     default:
       return { success: false, error: `Action not supported in Mock API: ${action}` };
   }
@@ -1584,7 +1597,7 @@ async function callApi(action: string, data: ApiData = {}): Promise<ApiResponse>
   }
   if (uncachedReads.includes(action)) invalidateCache();
 
-  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight", "saveShopPrices"];
+  const writeActions = ["createShop", "updateShop", "createUser", "updateUser", "createEmployee", "updateEmployee", "createProduct", "updateProduct", "submitDailySales", "submitDailyStock", "submitFullDailyReport", "submitDailyReport", "submitDailyCollection", "approveReport", "rejectReport", "reopenReport", "approveCollection", "rejectCollection", "reopenCollection", "updateOpeningStock", "updateOpeningStockBatch", "updateCollectionByAdmin", "updateCollectionDeposit", "submitMTN", "submitLiveWeight", "saveShopPrices"];
   if (writeActions.includes(action)) {
     invalidateCache();
   }
@@ -1744,5 +1757,6 @@ export const appsScriptClient = {
   getMTNsForShop: (shopId: string) => callApi("getMTNsForShop", { shopId }),
   getShopPrices: (shopId?: string) => callApi("getShopPrices", { shopId }),
   saveShopPrices: (shopId: string, prices: Array<{ productId: string; rate: number }>) => callApi("saveShopPrices", { shopId, prices }),
-  updateOpeningStock: (payload: { shopId: string; productId: string; openingStock: number }) => callApi("updateOpeningStock", payload)
+  updateOpeningStock: (payload: { shopId: string; productId: string; openingStock: number }) => callApi("updateOpeningStock", payload),
+  updateOpeningStockBatch: (shopId: string, items: Array<{ productId: string; openingStock: number }>) => callApi("updateOpeningStockBatch", { shopId, items })
 };

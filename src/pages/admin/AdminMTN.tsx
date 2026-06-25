@@ -14,6 +14,7 @@ interface MtnItem {
   quantity: number;
   rate: number;
   amount: number;
+  available?: number;
 }
 
 interface SentMtnRow {
@@ -48,6 +49,7 @@ export const AdminMTN: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [stockMap, setStockMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!user || user.role !== "Admin") { navigate("/login"); return; }
@@ -72,6 +74,19 @@ export const AdminMTN: React.FC = () => {
     };
     load();
   }, [navigate, user]);
+
+  // Load stock for source shop
+  useEffect(() => {
+    const sourceShop = shops.find((s) => s.ShopName === fromLocation);
+    if (!sourceShop) { setStockMap({}); return; }
+    appsScriptClient.getOpeningStock(sourceShop.ShopID, getLocalDateInputValue()).then((res) => {
+      if (res.success && res.openingStock) {
+        const map: Record<string, number> = {};
+        res.openingStock.forEach((s: any) => { map[s.ProductID] = s.CurrentOpeningStock || 0; });
+        setStockMap(map);
+      }
+    }).catch(() => {});
+  }, [fromLocation, shops]);
 
   const loadSentMtns = async () => {
     // Load all MTNs from all shops to show admin what was sent
@@ -201,19 +216,23 @@ export const AdminMTN: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-secondary/50 text-muted-foreground border-b border-border">
-                  <tr><th className="p-3 font-bold">Product</th><th className="p-3 font-bold">UOM</th><th className="p-3 font-bold text-right w-24">Qty</th><th className="p-3 font-bold text-right w-24">Rate</th><th className="p-3 font-bold text-right w-28">Amount</th><th className="p-3 w-10"></th></tr>
+                  <tr><th className="p-3 font-bold">Product</th><th className="p-3 font-bold">UOM</th><th className="p-3 font-bold text-right w-20">Stock</th><th className="p-3 font-bold text-right w-24">Qty</th><th className="p-3 font-bold text-right w-24">Rate</th><th className="p-3 font-bold text-right w-28">Amount</th><th className="p-3 w-10"></th></tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {items.map((item, i) => (
+                  {items.map((item, i) => {
+                    const avail = stockMap[item.productId];
+                    return (
                     <tr key={i}>
                       <td className="p-2"><select value={item.productId} onChange={(e) => changeProduct(i, e.target.value)} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-semibold outline-none">{products.map((p) => <option key={p.ProductID} value={p.ProductID}>{p.ProductName}</option>)}</select></td>
                       <td className="p-3 text-xs">{item.uom}</td>
+                      <td className="p-3 text-right text-xs font-bold">{avail !== undefined ? <span className={avail > 0 ? "text-green-700" : "text-muted-foreground"}>{avail}</span> : <span className="text-muted-foreground">—</span>}</td>
                       <td className="p-2"><input type="number" min="0" step="0.01" value={item.quantity || ""} onChange={(e) => updateItem(i, "quantity", Number(e.target.value || 0))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none" placeholder="0" /></td>
                       <td className="p-2"><input type="number" min="0" step="0.01" value={item.rate || ""} onChange={(e) => updateItem(i, "rate", Number(e.target.value || 0))} className="w-full rounded border border-input bg-background px-2 py-2 text-xs font-bold text-right outline-none" /></td>
                       <td className="p-3 text-right font-black text-xs">{item.amount > 0 ? formatCurrency(item.amount) : "-"}</td>
                       <td className="p-2"><button type="button" onClick={() => removeRow(i)} className="rounded p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

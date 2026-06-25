@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FileDown, FileSpreadsheet, RefreshCw, ShoppingBag } from "lucide-react";
+import { ChevronDown, ChevronRight, FileDown, FileSpreadsheet, RefreshCw, ShoppingBag } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
 import type { DailySalesEntry, Shop, User, UserSession } from "../../types";
@@ -134,46 +134,7 @@ export const DailySales: React.FC = () => {
         <div className="rounded-lg border border-border bg-card p-10 text-center text-sm text-muted-foreground">No sales entries found for the selected filters.</div>
       ) : (
         <div className="space-y-4">
-          <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-left text-xs">
-                <thead className="border-b border-border bg-secondary/50 text-muted-foreground">
-                  <tr>
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Shop</th>
-                    <th className="p-3">Employee</th>
-                    <th className="p-3">Product</th>
-                    <th className="p-3 text-right">Qty</th>
-                    <th className="p-3 text-right">Rate</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">EFD</th>
-                    <th className="p-3">Customer</th>
-                    <th className="p-3 text-right">Cash</th>
-                    <th className="p-3 text-right">Credit</th>
-                    <th className="p-3 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {filteredSales.map((sale) => (
-                    <tr key={sale.EntryID} className="hover:bg-secondary/30">
-                      <td className="p-3 font-bold">{formatDateForDisplay(sale.Date)}</td>
-                      <td className="p-3">{sale.ShopName}</td>
-                      <td className="p-3">{sale.EmployeeName || sale.EmployeeID}</td>
-                      <td className="p-3 font-bold">{sale.ProductName}</td>
-                      <td className="p-3 text-right">{sale.Quantity} {sale.UOM}</td>
-                      <td className="p-3 text-right">{formatCurrency(sale.Rate)}</td>
-                      <td className="p-3">{sale.SaleType}</td>
-                      <td className="p-3 font-mono text-muted-foreground">{sale.EFDNumber || "-"}</td>
-                      <td className="p-3">{sale.CustomerName || "-"}</td>
-                      <td className="p-3 text-right">{formatCurrency(sale.CashSales)}</td>
-                      <td className="p-3 text-right">{formatCurrency(sale.CreditSales)}</td>
-                      <td className="p-3 text-right font-black text-primary">{formatCurrency(sale.TotalAmount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DayGroupedSales sales={filteredSales} />
 
           <div className="grid gap-3 sm:grid-cols-4">
             <TotalBox label="Total Quantity" value={String(totals.quantity)} />
@@ -258,5 +219,108 @@ const TotalBox: React.FC<{ label: string; value: string; strong?: boolean }> = (
     <p className={`mt-1 text-lg ${strong ? "font-black text-primary" : "font-bold"}`}>{value}</p>
   </div>
 );
+
+interface DayGroup {
+  date: string;
+  shop: string;
+  employee: string;
+  entries: DailySalesEntry[];
+  cash: number;
+  credit: number;
+  total: number;
+  qty: number;
+}
+
+const DayGroupedSales: React.FC<{ sales: DailySalesEntry[] }> = ({ sales }) => {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const groups: DayGroup[] = useMemo(() => {
+    const map = new Map<string, DayGroup>();
+    sales.forEach((s) => {
+      const key = `${String(s.Date).split("T")[0]}_${s.ShopName}_${s.EmployeeName || s.EmployeeID}`;
+      if (!map.has(key)) {
+        map.set(key, { date: String(s.Date), shop: s.ShopName, employee: s.EmployeeName || s.EmployeeID, entries: [], cash: 0, credit: 0, total: 0, qty: 0 });
+      }
+      const g = map.get(key)!;
+      g.entries.push(s);
+      g.cash += Number(s.CashSales || 0);
+      g.credit += Number(s.CreditSales || 0);
+      g.total += Number(s.TotalAmount || 0);
+      g.qty += Number(s.Quantity || 0);
+    });
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [sales]);
+
+  const toggle = (key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      {groups.map((g) => {
+        const key = `${g.date}_${g.shop}_${g.employee}`;
+        const isOpen = expanded.has(key);
+        return (
+          <div key={key} className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+            <button type="button" onClick={() => toggle(key)} className="flex w-full items-center gap-3 p-4 text-left hover:bg-secondary/30 transition-colors">
+              {isOpen ? <ChevronDown className="h-4 w-4 text-primary flex-shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-black">{formatDateForDisplay(g.date)}</span>
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <span className="text-xs font-bold text-muted-foreground">{g.shop}</span>
+                  <span className="text-xs text-muted-foreground">•</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{g.employee}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{g.entries.length} items · {g.qty} qty</p>
+              </div>
+              <div className="flex items-center gap-4 flex-shrink-0 text-right">
+                <div><p className="text-[10px] text-muted-foreground">Cash</p><p className="text-xs font-bold text-green-700">{formatCurrency(g.cash)}</p></div>
+                <div><p className="text-[10px] text-muted-foreground">Credit</p><p className="text-xs font-bold text-amber-700">{formatCurrency(g.credit)}</p></div>
+                <div><p className="text-[10px] text-muted-foreground">Total</p><p className="text-sm font-black text-primary">{formatCurrency(g.total)}</p></div>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t border-border overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-secondary/40 text-muted-foreground">
+                    <tr>
+                      <th className="p-2.5 pl-12">Product</th>
+                      <th className="p-2.5 text-right">Qty</th>
+                      <th className="p-2.5 text-right">Rate</th>
+                      <th className="p-2.5">Type</th>
+                      <th className="p-2.5">Customer</th>
+                      <th className="p-2.5 text-right">Cash</th>
+                      <th className="p-2.5 text-right">Credit</th>
+                      <th className="p-2.5 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {g.entries.map((s) => (
+                      <tr key={s.EntryID} className="hover:bg-secondary/20">
+                        <td className="p-2.5 pl-12 font-bold">{s.ProductName}</td>
+                        <td className="p-2.5 text-right">{s.Quantity} {s.UOM}</td>
+                        <td className="p-2.5 text-right">{formatCurrency(s.Rate)}</td>
+                        <td className={`p-2.5 font-bold ${s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}`}>{s.SaleType}</td>
+                        <td className="p-2.5 text-muted-foreground">{s.CustomerName || "-"}</td>
+                        <td className="p-2.5 text-right">{formatCurrency(s.CashSales)}</td>
+                        <td className="p-2.5 text-right">{formatCurrency(s.CreditSales)}</td>
+                        <td className="p-2.5 text-right font-black">{formatCurrency(s.TotalAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export default DailySales;

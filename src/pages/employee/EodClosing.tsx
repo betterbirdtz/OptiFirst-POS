@@ -71,7 +71,7 @@ export const EodClosing: React.FC = () => {
   // Load shops and products
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    if (user.role !== "Employee") { navigate("/admin/dashboard"); return; }
+    if (user.role !== "Employee" && user.role !== "Admin") { navigate("/admin/dashboard"); return; }
 
     const loadBaseData = async () => {
       setLoading(true);

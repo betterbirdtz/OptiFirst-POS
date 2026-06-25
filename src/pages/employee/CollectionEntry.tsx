@@ -12,7 +12,6 @@ import {
   ReceiptText,
   Send,
   ShoppingBag,
-  Trash2,
   WalletCards
 } from "lucide-react";
 import { appsScriptClient } from "../../api/appsScriptClient";
@@ -101,7 +100,7 @@ export const CollectionEntry: React.FC = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    if (user.role !== "Employee") { navigate("/admin/dashboard"); return; }
+    if (user.role !== "Employee" && user.role !== "Admin") { navigate("/admin/dashboard"); return; }
     const load = async () => {
       setLoading(true);
       try {
@@ -162,37 +161,6 @@ export const CollectionEntry: React.FC = () => {
       setSalesLoaded(true);
     } catch { setError("Failed to load sales data."); }
     finally { setLoadingSales(false); }
-  };
-
-  const handleDeleteCollection = async () => {
-    if (!collectionId) return;
-    if (!window.confirm("Are you sure you want to delete this collection entry? This action cannot be undone.")) return;
-    setSubmitting(true);
-    setError("");
-    try {
-      const res = await appsScriptClient.deleteCollection(collectionId);
-      if (res.success) {
-        setSalesLoaded(false);
-        setCollectionId(undefined);
-        setCollectionStatus(undefined);
-        setCollection({
-          depositCash: 0,
-          depositLIPA: 0,
-          depositInBank: 0,
-          dateOfDeposit: "",
-          efdZReport: 0,
-          name: user?.name || "",
-          signatureConfirmed: false,
-          remarks: ""
-        });
-      } else {
-        setError(res.error || "Failed to delete collection.");
-      }
-    } catch {
-      setError("Network error deleting collection.");
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const handleSelfReopen = async () => {
@@ -418,11 +386,6 @@ export const CollectionEntry: React.FC = () => {
           {/* Submit */}
           <div className="flex gap-3">
             <button type="button" onClick={() => setSalesLoaded(false)} className="flex-1 rounded-lg border border-border py-3 text-sm font-bold hover:bg-secondary">Back</button>
-            {collectionStatus === "Reopened" && (
-              <button type="button" onClick={handleDeleteCollection} disabled={submitting} className="flex-1 flex items-center justify-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 py-3 text-sm font-bold text-destructive hover:bg-destructive hover:text-white disabled:opacity-50">
-                <Trash2 className="h-4 w-4" />Delete
-              </button>
-            )}
             {collectionStatus !== "Submitted" ? (
               <button type="button" onClick={submitCollection} disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
                 <Send className="h-4 w-4" />{submitting ? "Submitting..." : "Submit Collection"}

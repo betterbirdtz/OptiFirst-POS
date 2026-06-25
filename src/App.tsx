@@ -49,12 +49,12 @@ export const App: React.FC = () => {
 
           {/* Employee Routes */}
           <Route path="/employee/dashboard" element={<ProtectedRoute allowedRoles={["Employee"]}><EmployeeDashboard /></ProtectedRoute>} />
-          <Route path="/employee/daily-sales" element={<ProtectedRoute allowedRoles={["Employee"]}><DailySalesEntry /></ProtectedRoute>} />
-          <Route path="/employee/closing" element={<ProtectedRoute allowedRoles={["Employee"]}><EodClosing /></ProtectedRoute>} />
-          <Route path="/employee/collection" element={<ProtectedRoute allowedRoles={["Employee"]}><CollectionEntry /></ProtectedRoute>} />
-          <Route path="/employee/mtn" element={<ProtectedRoute allowedRoles={["Employee"]}><MaterialTransferNote /></ProtectedRoute>} />
-          <Route path="/employee/my-reports" element={<ProtectedRoute allowedRoles={["Employee"]}><MyReports /></ProtectedRoute>} />
-          <Route path="/employee/edit-report" element={<ProtectedRoute allowedRoles={["Employee"]}><EditReport /></ProtectedRoute>} />
+          <Route path="/employee/daily-sales" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><DailySalesEntry /></ProtectedRoute>} />
+          <Route path="/employee/closing" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><EodClosing /></ProtectedRoute>} />
+          <Route path="/employee/collection" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><CollectionEntry /></ProtectedRoute>} />
+          <Route path="/employee/mtn" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><MaterialTransferNote /></ProtectedRoute>} />
+          <Route path="/employee/my-reports" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><MyReports /></ProtectedRoute>} />
+          <Route path="/employee/edit-report" element={<ProtectedRoute allowedRoles={["Employee", "Admin"]}><EditReport /></ProtectedRoute>} />
 
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={["Admin"]}><AdminDashboard /></ProtectedRoute>} />

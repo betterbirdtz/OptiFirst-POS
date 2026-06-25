@@ -243,6 +243,8 @@ function processAction(action, data) {
       return handleGetMTNsForShop(data);
     case "updateOpeningStock":
       return handleUpdateOpeningStock(data);
+    case "updateOpeningStockBatch":
+      return handleUpdateOpeningStockBatch(data);
     case "deleteCollection":
       return handleDeleteCollection(data);
     case "deleteReport":
@@ -330,6 +332,9 @@ function sheetTimeZone() {
 
 function serializeSheetValue(header, value) {
   if (Object.prototype.toString.call(value) !== "[object Date]") return value;
+  if (header === "Month") {
+    return Utilities.formatDate(value, sheetTimeZone(), "yyyy-MM");
+  }
   if (isDateOnlyColumn(header)) {
     return Utilities.formatDate(value, sheetTimeZone(), "yyyy-MM-dd");
   }
@@ -778,8 +783,8 @@ function validateSubmission(data, requireSales, requireStock) {
 
   const user = findUser(data.employeeId);
   if (!user || user.Status !== "Active") return "Active employee account is required.";
-  if (user.Role !== "Employee") return "Only employees can submit daily reports.";
-  if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return "Employee can submit only for their assigned shop.";
+  if (user.Role !== "Employee" && user.Role !== "Admin") return "Only employees or admins can submit daily reports.";
+  if (user.Role === "Employee" && user.ShopID && String(user.ShopID) !== String(data.shopId)) return "Employee can submit only for their assigned shop.";
 
   const shop = findShop(data.shopId);
   if (!shop || shop.Status !== "Active") return "Active shop is required.";
@@ -832,6 +837,30 @@ function handleGetOpeningStock(data) {
   const openingStock = products.map(function (product) {
     const last = stockRows.find(function (row) { return String(row.ProductID) === String(product.ProductID); });
     const override = overrides.find(function(row) { return String(row.ProductID) === String(product.ProductID); });
+    
+    // Priority: last ActualClosing wins if it exists (auto-carry-forward)
+    // Override only used when NO previous stock closing exists, or override is newer than last closing
+    var value = 0;
+    var source = "";
+    if (last && override) {
+      // Use whichever is more recent
+      var lastDate = normalizeDate(last.Date);
+      var overrideDate = normalizeDate(override.UpdatedAt);
+      if (overrideDate > lastDate) {
+        value = toNumber(override.OpeningStock);
+        source = overrideDate;
+      } else {
+        value = toNumber(last.ActualClosing);
+        source = lastDate;
+      }
+    } else if (last) {
+      value = toNumber(last.ActualClosing);
+      source = normalizeDate(last.Date);
+    } else if (override) {
+      value = toNumber(override.OpeningStock);
+      source = normalizeDate(override.UpdatedAt);
+    }
+    
     return {
       ShopID: shopId,
       ShopName: shop.ShopName || "",
@@ -839,8 +868,8 @@ function handleGetOpeningStock(data) {
       ProductName: product.ProductName,
       Category: product.Category,
       UOM: product.UOM,
-      CurrentOpeningStock: override ? toNumber(override.OpeningStock) : last ? toNumber(last.ActualClosing) : 0,
-      LastUpdatedDate: override ? override.UpdatedAt : last ? normalizeDate(last.Date) : ""
+      CurrentOpeningStock: value,
+      LastUpdatedDate: source
     };
   });
   return { success: true, openingStock: openingStock };
@@ -873,7 +902,6 @@ function getCurrentOpeningStockValue(shopId, productId) {
   const override = getObjects(SHEETS.OpeningStock.name).find(function(row) {
     return String(row.ShopID) === String(shopId) && String(row.ProductID) === String(productId);
   });
-  if (override) return toNumber(override.OpeningStock);
 
   const last = getObjects(SHEETS.DailyStockEntries.name)
     .filter(function(row) {
@@ -882,7 +910,15 @@ function getCurrentOpeningStockValue(shopId, productId) {
     .sort(function(a, b) {
       return String(normalizeDate(b.Date) + b.CreatedAt).localeCompare(String(normalizeDate(a.Date) + a.CreatedAt));
     })[0];
-  return last ? toNumber(last.ActualClosing) : 0;
+
+  if (last && override) {
+    var lastDate = normalizeDate(last.Date);
+    var overrideDate = normalizeDate(override.UpdatedAt);
+    return overrideDate > lastDate ? toNumber(override.OpeningStock) : toNumber(last.ActualClosing);
+  }
+  if (last) return toNumber(last.ActualClosing);
+  if (override) return toNumber(override.OpeningStock);
+  return 0;
 }
 
 function setOpeningStockValue(shopId, productId, openingStock) {
@@ -1294,8 +1330,8 @@ function handleSubmitDailyCollection(data) {
   if (!data.shopId || !data.date || !data.employeeId) return { success: false, error: "Shop, date, and employee are required." };
   if (!data.signature) return { success: false, error: "Signature confirmation is required before submitting collection." };
   const user = getObjectsCached(SHEETS.Users.name, 300).find(function (row) { return String(row.UserID) === String(data.employeeId); });
-  if (!user || user.Role !== "Employee" || user.Status !== "Active") return { success: false, error: "Active employee account is required." };
-  if (user.ShopID && String(user.ShopID) !== String(data.shopId)) return { success: false, error: "Employee can submit collection only for assigned shop." };
+  if (!user || user.Status !== "Active") return { success: false, error: "Active account is required." };
+  if (user.Role === "Employee" && user.ShopID && String(user.ShopID) !== String(data.shopId)) return { success: false, error: "Employee can submit collection only for assigned shop." };
 
   const date = normalizeDate(data.date);
   const existingCollection = getObjects(SHEETS.Collections.name).find(function (row) {
@@ -1561,6 +1597,18 @@ function handleSubmitMTN(data) {
     appendRows(SHEETS.MTN.name, rows);
   }
 
+  // Reduce stock at source shop if source is a shop (not HO)
+  var sourceShop = getObjectsCached(SHEETS.Shops.name, 300).find(function(s) { return s.ShopName === data.from; });
+  if (sourceShop && sourceShop.ShopID) {
+    for (var j = 0; j < items.length; j++) {
+      var srcItem = items[j];
+      var qty = toNumber(srcItem.qtyAsPerMTN);
+      if (qty > 0) {
+        adjustOpeningStockForTransfer(sourceShop.ShopID, srcItem.productId || "", srcItem.productName || "", -qty);
+      }
+    }
+  }
+
   logAction(data.employeeId || "ADMIN", "SUBMIT_MTN", "MTN " + data.mtnNo + " from " + (data.from || "HO") + " to " + (data.shopName || data.to) + " with " + items.length + " items");
   return { success: true, reportId: rows.length > 0 ? rows[0][0] : makeId("MTN") };
 }
@@ -1572,6 +1620,19 @@ function handleUpdateOpeningStock(data) {
   setOpeningStockValue(data.shopId, data.productId, openingStock);
 
   logAction("ADMIN", "UPDATE_OPENING_STOCK", "Product " + data.productId + " at shop " + data.shopId + " set to " + openingStock);
+  return { success: true };
+}
+
+function handleUpdateOpeningStockBatch(data) {
+  if (!data.shopId) return { success: false, error: "Shop is required." };
+  var items = Array.isArray(data.items) ? data.items : [];
+  if (items.length === 0) return { success: false, error: "No stock items provided." };
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    if (!item.productId) continue;
+    setOpeningStockValue(data.shopId, item.productId, toNumber(item.openingStock));
+  }
+  logAction("ADMIN", "UPDATE_OPENING_STOCK_BATCH", items.length + " products updated for shop " + data.shopId);
   return { success: true };
 }
 

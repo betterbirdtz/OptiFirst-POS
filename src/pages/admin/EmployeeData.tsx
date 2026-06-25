@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { AlertCircle, Boxes, ClipboardList, Download, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { AlertCircle, Boxes, ClipboardList, Download, PlusCircle, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import type { CollectionEntry, DailySalesEntry, DailyStockEntry, Shop, User, UserSession } from "../../types";
@@ -109,6 +109,26 @@ export const EmployeeData: React.FC = () => {
             <Download className="h-4 w-4" /> Export Excel
           </button>
         )}
+      </div>
+
+      {/* Quick Actions - Admin can do what employee does */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Link to="/employee/daily-sales" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 hover:bg-primary/10 transition-colors">
+          <PlusCircle className="h-6 w-6 text-primary" />
+          <div><p className="text-xs font-black">Daily Sales</p><p className="text-[10px] text-muted-foreground">Submit sales</p></div>
+        </Link>
+        <Link to="/employee/closing" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 hover:bg-primary/10 transition-colors">
+          <Boxes className="h-6 w-6 text-primary" />
+          <div><p className="text-xs font-black">Stock Closing</p><p className="text-[10px] text-muted-foreground">End of day</p></div>
+        </Link>
+        <Link to="/employee/collection" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 hover:bg-primary/10 transition-colors">
+          <WalletCards className="h-6 w-6 text-primary" />
+          <div><p className="text-xs font-black">Collection</p><p className="text-[10px] text-muted-foreground">Deposits</p></div>
+        </Link>
+        <Link to="/employee/mtn" className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 hover:bg-primary/10 transition-colors">
+          <ClipboardList className="h-6 w-6 text-primary" />
+          <div><p className="text-xs font-black">MTN Receipt</p><p className="text-[10px] text-muted-foreground">Receive stock</p></div>
+        </Link>
       </div>
 
       {/* Filters */}

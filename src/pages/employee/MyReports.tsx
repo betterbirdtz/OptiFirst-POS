@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Boxes, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, Trash2, WalletCards } from "lucide-react";
+import { AlertCircle, ArrowLeft, Boxes, ChevronDown, ChevronRight, ClipboardList, Download, Edit2, RefreshCw, ShoppingBag, WalletCards } from "lucide-react";
 import * as XLSX from "xlsx";
 import { appsScriptClient } from "../../api/appsScriptClient";
 import DateRangeFilter from "../../components/common/DateRangeFilter";
@@ -68,24 +68,6 @@ export const MyReports: React.FC = () => {
         date: String(report.Date).split("T")[0]
       }
     });
-  };
-
-  const handleDeleteReopenedReport = async (reportId: string) => {
-    if (!window.confirm("Are you sure you want to delete this report? This will remove all entered sales, stock entries, and collection details for this date, allowing you to start fresh. This cannot be undone.")) return;
-    setLoading(true);
-    try {
-      const response = await appsScriptClient.deleteReport(reportId);
-      if (response.success) {
-        await loadData();
-      } else {
-        setError(response.error || "Failed to delete report.");
-      }
-    } catch (err) {
-      console.error(err);
-      setError("Network error deleting report.");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const exportExcel = () => {
@@ -178,12 +160,6 @@ export const MyReports: React.FC = () => {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleDeleteReopenedReport(report.ReportID)}
-                  className="flex items-center gap-1.5 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs font-bold text-destructive hover:bg-destructive hover:text-white active:scale-95"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
-                </button>
-                <button
                   onClick={() => handleEditReopened(report)}
                   className="flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white active:bg-orange-700"
                 >
@@ -213,21 +189,11 @@ export const MyReports: React.FC = () => {
             </div>
           </div>
 
-          {/* Daily Sales */}
+          {/* Daily Sales - Grouped by day */}
           {sales.length > 0 && (
             <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
               <div className="flex items-center gap-2 border-b border-border p-3 bg-green-50"><ShoppingBag className="h-4 w-4 text-green-700" /><h2 className="text-xs font-black text-green-800">Daily Sales ({sales.length})</h2></div>
-              <div className="divide-y divide-border/60">
-                {sales.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between p-3">
-                    <div>
-                      <p className="text-sm font-bold">{s.ProductName}</p>
-                      <p className="text-[10px] text-muted-foreground">{formatDateForDisplay(s.Date)} · {s.Quantity} {s.UOM} × {formatCurrency(s.Rate)} · <span className={s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}>{s.SaleType}</span>{s.CustomerName ? ` · ${s.CustomerName}` : ""}</p>
-                    </div>
-                    <p className="text-sm font-black">{formatCurrency(s.TotalAmount)}</p>
-                  </div>
-                ))}
-              </div>
+              <SalesDayGroups sales={sales} />
             </section>
           )}
 
@@ -299,6 +265,63 @@ export const MyReports: React.FC = () => {
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+const SalesDayGroups: React.FC<{ sales: DailySalesEntry[] }> = ({ sales }) => {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const groups = React.useMemo(() => {
+    const map = new Map<string, { date: string; entries: DailySalesEntry[]; cash: number; credit: number; total: number }>();
+    sales.forEach((s) => {
+      const key = String(s.Date).split("T")[0];
+      if (!map.has(key)) map.set(key, { date: String(s.Date), entries: [], cash: 0, credit: 0, total: 0 });
+      const g = map.get(key)!;
+      g.entries.push(s);
+      g.cash += Number(s.CashSales || 0);
+      g.credit += Number(s.CreditSales || 0);
+      g.total += Number(s.TotalAmount || 0);
+    });
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [sales]);
+
+  const toggle = (key: string) => setExpanded((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  return (
+    <div className="divide-y divide-border/60">
+      {groups.map((g) => {
+        const key = g.date;
+        const isOpen = expanded.has(key);
+        return (
+          <div key={key}>
+            <button type="button" onClick={() => toggle(key)} className="flex w-full items-center gap-2 p-3 text-left hover:bg-green-50/50 transition-colors">
+              {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-green-700" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+              <div className="flex-1">
+                <span className="text-sm font-black">{formatDateForDisplay(g.date)}</span>
+                <span className="ml-2 text-[10px] text-muted-foreground">{g.entries.length} items</span>
+              </div>
+              <div className="flex gap-3 text-right">
+                <span className="text-xs font-bold text-green-700">{formatCurrency(g.cash)}</span>
+                {g.credit > 0 && <span className="text-xs font-bold text-amber-700">{formatCurrency(g.credit)}</span>}
+                <span className="text-sm font-black text-primary">{formatCurrency(g.total)}</span>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t border-border/40 bg-secondary/20 divide-y divide-border/30">
+                {g.entries.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between px-4 py-2 pl-9">
+                    <div>
+                      <p className="text-xs font-bold">{s.ProductName}</p>
+                      <p className="text-[10px] text-muted-foreground">{s.Quantity} {s.UOM} × {formatCurrency(s.Rate)} · <span className={s.SaleType === "Cash" ? "text-green-700" : "text-amber-700"}>{s.SaleType}</span>{s.CustomerName ? ` · ${s.CustomerName}` : ""}</p>
+                    </div>
+                    <p className="text-xs font-black">{formatCurrency(s.TotalAmount)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };

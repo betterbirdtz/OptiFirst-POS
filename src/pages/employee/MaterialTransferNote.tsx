@@ -78,7 +78,7 @@ export const MaterialTransferNote: React.FC = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    if (user.role !== "Employee") { navigate("/admin/dashboard"); return; }
+    if (user.role !== "Employee" && user.role !== "Admin") { navigate("/admin/dashboard"); return; }
     loadPendingMtns();
   }, [navigate, user]);
 

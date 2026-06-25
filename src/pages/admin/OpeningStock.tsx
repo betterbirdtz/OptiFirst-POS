@@ -97,24 +97,20 @@ export const OpeningStock: React.FC = () => {
   const handleSave = async () => {
     setSaving(true); setError(""); setSuccess("");
     try {
-      for (const entry of stockEntries) {
-        const response = await appsScriptClient.updateOpeningStock({
-          shopId: selectedShopId,
-          productId: entry.ProductID,
-          openingStock: entry.CurrentOpeningStock
-        });
-        if (!response.success) {
-          setError(response.error || `Failed to save opening stock for ${entry.ProductName}.`);
-          return;
-        }
-      }
-      const refreshed = await appsScriptClient.getOpeningStock(selectedShopId, stockDate);
-      if (!refreshed.success || !refreshed.openingStock) {
-        setError(refreshed.error || "Opening stock saved, but reload failed.");
+      const items = stockEntries.map((entry) => ({
+        productId: entry.ProductID,
+        openingStock: entry.CurrentOpeningStock
+      }));
+      const response = await appsScriptClient.updateOpeningStockBatch(selectedShopId, items);
+      if (!response.success) {
+        setError(response.error || "Failed to save opening stock.");
         return;
       }
-      setStockEntries(refreshed.openingStock);
-      setSuccess("Opening stock saved to Google Sheet.");
+      const refreshed = await appsScriptClient.getOpeningStock(selectedShopId, stockDate);
+      if (refreshed.success && refreshed.openingStock) {
+        setStockEntries(refreshed.openingStock);
+      }
+      setSuccess("Opening stock saved.");
     } catch { setError("Failed to save opening stock."); }
     finally { setSaving(false); }
   };

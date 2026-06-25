@@ -65,7 +65,7 @@ export const DailySalesEntry: React.FC = () => {
 
   useEffect(() => {
     if (!user) { navigate("/login"); return; }
-    if (user.role !== "Employee") { navigate("/admin/dashboard"); return; }
+    if (user.role !== "Employee" && user.role !== "Admin") { navigate("/admin/dashboard"); return; }
     const load = async () => {
       setLoading(true);
       try {
